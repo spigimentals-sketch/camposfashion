@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.log
+.env
+.DS_Store
+
+# Real shop data — never belongs in the repo (per-shop SQLite files, the
+# platform's account directory, uploaded photos, and any backup copy of a
+# real database made during migrations/testing).
+server/*.db*
+server/tenants/
+server/uploads/
+
+# Claude Code's own local session/tool config — not project source.
+.claude/
+
+# Local-only backups of the old (retired) nested git histories — never
+# meant to be committed, just kept on disk in case they're needed later.
+server/.git-old-diallo-backup/
+web/.git-old-diallo-backup/

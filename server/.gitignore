@@ -1,0 +1,9 @@
+node_modules/
+.env
+
+# Real shop data — never belongs in the repo (per-shop SQLite files, the
+# platform's account directory, uploaded photos, and any backup copy of a
+# real database made during migrations/testing).
+*.db*
+tenants/
+uploads/
