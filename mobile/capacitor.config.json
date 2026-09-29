@@ -1,0 +1,12 @@
+{
+  "appId": "com.camposfashion.app",
+  "appName": "CamPOS Fashion",
+  "webDir": "www",
+  "server": {
+    "url": "https://camposfashion.onrender.com",
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

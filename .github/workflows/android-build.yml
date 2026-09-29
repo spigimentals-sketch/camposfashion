@@ -1,0 +1,52 @@
+name: Build Android app
+
+# Runs on GitHub's own runners, which already have a JDK and the Android
+# SDK — this project has none of that installed locally, so this is the
+# only place the APK actually gets built. Manually triggerable, and also
+# runs automatically when anything under mobile/ changes, so it doesn't
+# fire on every unrelated server/ or web/ commit.
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android-build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install mobile/ dependencies
+        working-directory: mobile
+        run: npm install
+
+      - name: Sync Capacitor (keeps the native project in step with config)
+        working-directory: mobile
+        run: npx cap sync android
+
+      - name: Make gradlew executable
+        working-directory: mobile/android
+        run: chmod +x ./gradlew
+
+      - name: Build debug APK
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: campos-fashion-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

@@ -1,0 +1,18 @@
+{
+  "name": "campos-fashion-mobile",
+  "version": "1.0.0",
+  "description": "Android app for CamPOS Fashion — a locked WebView pointed at the hosted server (see capacitor.config.json), same model as desktop/.",
+  "private": true,
+  "scripts": {
+    "sync": "cap sync android",
+    "icons": "capacitor-assets generate --android --iconBackgroundColor '#881337' --iconBackgroundColorDark '#881337'"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.2"
+  }
+}
