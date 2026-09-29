@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CamPOS Fashion — Connect</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: #0c0a09; color: #fff;
+      font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    .card {
+      width: 360px; background: rgba(255,255,255,0.97); color: #1c1917;
+      border-radius: 20px; padding: 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .badge {
+      width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg,#e11d48,#881337);
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;
+      color: #fff; font-weight: 700; font-size: 22px;
+    }
+    h1 { font-size: 19px; text-align: center; margin: 0 0 4px; }
+    p.sub { text-align: center; color: #78716c; font-size: 13px; margin: 0 0 20px; }
+    label { display: block; font-size: 12px; font-weight: 600; color: #57534e; margin-bottom: 6px; }
+    input {
+      width: 100%; padding: 10px 12px; border: 1px solid #e7e5e4; border-radius: 10px;
+      font-size: 14px; outline: none;
+    }
+    input:focus { border-color: #be123c; box-shadow: 0 0 0 3px rgba(190,18,60,0.12); }
+    button {
+      width: 100%; margin-top: 14px; padding: 11px; border: none; border-radius: 10px;
+      background: #881337; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    button:hover { background: #6a0f2b; }
+    button:disabled { opacity: 0.6; cursor: default; }
+    .error { color: #be123c; font-size: 12px; margin-top: 10px; min-height: 14px; }
+    .hint { color: #a8a29e; font-size: 11px; margin-top: 16px; line-height: 1.5; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">C</div>
+    <h1>Connect to your shop</h1>
+    <p class="sub">Enter the web address your shop uses to sign in</p>
+    <label for="url">Server address</label>
+    <input id="url" type="text" placeholder="e.g. camposfashion.onrender.com" autofocus />
+    <button id="go">Connect</button>
+    <div class="error" id="error"></div>
+    <div class="hint">This is the same address you'd type in a browser — ask whoever set up your shop's hosting if you're not sure.</div>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const current = params.get('current');
+    const input = document.getElementById('url');
+    const btn = document.getElementById('go');
+    const errorEl = document.getElementById('error');
+    if (current) input.value = current;
+
+    async function connect() {
+      errorEl.textContent = '';
+      const value = input.value.trim();
+      if (!value) { errorEl.textContent = 'Enter a server address first.'; return; }
+      btn.disabled = true;
+      btn.textContent = 'Connecting…';
+      const result = await window.desktopApi.saveServerUrl(value);
+      if (!result.ok) {
+        errorEl.textContent = result.error;
+        btn.disabled = false;
+        btn.textContent = 'Connect';
+      }
+      // On success, main process navigates the window away from this
+      // screen itself — nothing left to do here.
+    }
+
+    btn.addEventListener('click', connect);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
+  </script>
+</body>
+</html>

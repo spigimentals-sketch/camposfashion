@@ -1,0 +1,33 @@
+{
+  "name": "campos-fashion-desktop",
+  "version": "1.0.0",
+  "description": "Desktop app for CamPOS Fashion — a native window pointed at your hosted CamPOS Fashion server (you choose the address on first launch).",
+  "main": "main.js",
+  "scripts": {
+    "start": "node run.js",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.camposfashion.desktop",
+    "productName": "CamPOS Fashion",
+    "files": [
+      "**/*",
+      "!node_modules/electron-builder/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}
