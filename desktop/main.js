@@ -3,6 +3,12 @@
 // database — same multi-tenant server every browser user hits, just in an
 // app-like window with a taskbar icon instead of a browser tab.
 //
+// Goes straight to DEFAULT_SERVER_URL on first launch — no "enter a
+// server address" prompt to get through first. "Change server…" (File
+// menu) still exists for the rare case this ever needs pointing somewhere
+// else (staging, self-hosting, etc.) — it's just not shown automatically.
+const DEFAULT_SERVER_URL = 'https://camposfashion.onrender.com';
+//
 // Security note: this window loads REAL remote content (a live server
 // someone logs into), so nodeIntegration is OFF and contextIsolation is ON
 // — the loaded page gets zero Node/Electron API access. The only bridge is
@@ -72,8 +78,7 @@ function createWindow() {
   // the person's regular browser instead of inside this app window.
   const isAllowedOrigin = (url) => {
     const { serverUrl } = loadConfig();
-    if (!serverUrl) return true; // still on the local setup screen
-    try { return new URL(url).origin === serverUrl; } catch { return false; }
+    try { return new URL(url).origin === (serverUrl || DEFAULT_SERVER_URL); } catch { return false; }
   };
   win.webContents.on('will-navigate', (e, url) => {
     if (url.startsWith('file://')) return; // local setup.html itself
@@ -86,8 +91,7 @@ function createWindow() {
   });
 
   const { serverUrl } = loadConfig();
-  if (serverUrl) goToServer(serverUrl);
-  else showSetup(null);
+  goToServer(serverUrl || DEFAULT_SERVER_URL);
 }
 
 // The setup screen (preload-exposed, see preload.js) asks the main process
@@ -108,7 +112,7 @@ function buildMenu() {
       submenu: [
         {
           label: 'Change server…',
-          click: () => { const { serverUrl } = loadConfig(); showSetup(serverUrl); },
+          click: () => { const { serverUrl } = loadConfig(); showSetup(serverUrl || DEFAULT_SERVER_URL); },
         },
         { role: 'reload' },
         { type: 'separator' },
