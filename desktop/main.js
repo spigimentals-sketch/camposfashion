@@ -9,6 +9,12 @@
 // the narrow, explicit one in preload.js, used solely by the local
 // setup.html screen (never by the remote server's own pages) to save/read
 // which server address to use.
+// If you're testing the PACKAGED .exe (not `npm start`) from a terminal
+// that has ELECTRON_RUN_AS_NODE set (VS Code's integrated terminal does
+// this — see run.js), the app silently runs as plain Node instead of a
+// real window and exits immediately with no error. Not a bug in this file
+// — clear that env var in the terminal, or launch the .exe from Explorer/
+// the Start Menu, before assuming something's actually broken.
 const { app, BrowserWindow, ipcMain, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
