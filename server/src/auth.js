@@ -15,7 +15,12 @@ const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 // staff token from one shop can never be replayed as a tenant credential,
 // even though both use the same compact HMAC scheme.
 const TENANT_SECRET = process.env.TENANT_AUTH_SECRET || 'diallo-pos-dev-tenant-secret-change-me';
-const TENANT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — a shop staying "logged in" on a till is normal
+// One login, kept until the shop owner explicitly signs out (the "Switch
+// business account" action — see switchShop() in web/src/shared.jsx, which
+// clears this token client-side). No server-side session list exists to
+// revoke a specific token early, so "never expires" is really "expires so
+// far out it never will in practice" — 20 years.
+const TENANT_TOKEN_TTL_MS = 20 * 365 * 24 * 60 * 60 * 1000;
 
 // A third, again separate, secret for the platform-owner's own admin panel
 // (create shops, suspend/activate them). This token is never sent anywhere
