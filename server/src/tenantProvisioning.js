@@ -11,8 +11,15 @@ import { hashPin } from './auth.js';
 import { platformDb } from './platformDb.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TENANTS_ROOT = path.join(__dirname, '..', 'tenants');
-const UPLOADS_ROOT = path.join(__dirname, '..', '..', 'uploads');
+// Same pattern as PLATFORM_DB_PATH (platformDb.js) and UPLOAD_DIR
+// (routes/api.js) — must be set to somewhere on a persistent disk in any
+// real deployment (e.g. Render), or every shop's database gets silently
+// wiped on the next deploy/restart while the platform's own directory
+// (which WAS on the persistent disk) still points at the now-missing file,
+// producing a 500 on every request for that shop. This one was missed when
+// the other two were wired up — see the memory note on this bug.
+const TENANTS_ROOT = process.env.TENANTS_DIR || path.join(__dirname, '..', 'tenants');
+const UPLOADS_ROOT = process.env.UPLOAD_DIR || path.join(__dirname, '..', '..', 'uploads');
 
 const slugify = (s) => (s || '').toString().toLowerCase().trim()
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);

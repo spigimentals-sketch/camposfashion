@@ -65,9 +65,14 @@ if (platformDb.prepare('SELECT 1 FROM tenants WHERE slug=? OR username=? COLLATE
   fail(`A shop with slug "${slug}" or username "${username}" already exists`);
 }
 
-const tenantDir = path.join(__dirname, '..', 'tenants', slug);
+// Same TENANTS_DIR/UPLOAD_DIR env vars tenantProvisioning.js uses — must
+// match, or a shop created via this flag ends up on a different disk than
+// the one everything else reads from.
+const tenantsRoot = process.env.TENANTS_DIR || path.join(__dirname, '..', 'tenants');
+const uploadsRoot = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
+const tenantDir = path.join(tenantsRoot, slug);
 fs.mkdirSync(tenantDir, { recursive: true });
-fs.mkdirSync(path.join(__dirname, '..', 'uploads', slug), { recursive: true });
+fs.mkdirSync(path.join(uploadsRoot, slug), { recursive: true });
 const dbPath = path.join(tenantDir, 'data.db');
 
 const src = path.resolve(process.cwd(), fromExisting);
