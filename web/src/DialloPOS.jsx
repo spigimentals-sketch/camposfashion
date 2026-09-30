@@ -239,10 +239,10 @@ const useT = () => useContext(LangContext);
 
 // ============ SHIFT CONTEXT ============
 const DEFAULT_EMPLOYEES = [
-  { id: 1, name: 'Mariama Ndiaye', role: 'Salesperson', initials: 'MN', color: 'from-amber-400 to-rose-500', rate: 1500 },
-  { id: 2, name: 'Awa Sow', role: 'Salesperson', initials: 'AS', color: 'from-sky-400 to-indigo-600', rate: 1500 },
-  { id: 3, name: 'Chantal Biya', role: 'Salesperson', initials: 'CB', color: 'from-fuchsia-400 to-purple-600', rate: 1500 },
-  { id: 4, name: 'Ibrahim Bah', role: 'Stocker', initials: 'IB', color: 'from-emerald-400 to-teal-600', rate: 1200 },
+  { id: 1, name: 'Mariama Ndiaye', role: 'Salesperson', initials: 'MN', color: 'from-amber-400 to-rose-500' },
+  { id: 2, name: 'Awa Sow', role: 'Salesperson', initials: 'AS', color: 'from-sky-400 to-indigo-600' },
+  { id: 3, name: 'Chantal Biya', role: 'Salesperson', initials: 'CB', color: 'from-fuchsia-400 to-purple-600' },
+  { id: 4, name: 'Ibrahim Bah', role: 'Stocker', initials: 'IB', color: 'from-emerald-400 to-teal-600' },
 ];
 
 const ShiftContext = createContext(null);
@@ -4391,7 +4391,7 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
 
   const buildPdf = async (u) => {
     const { doc, margin, startY } = await createLetterheadPdf({
-      docTitle: msgType === 'payslip' ? 'Payslip' : 'Notice',
+      docTitle: msgType === 'payslip' ? 'Attendance Summary' : 'Notice',
       settings: liveSettings || {},
     });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -4405,20 +4405,19 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
     doc.setFontSize(11);
 
     if (msgType === 'payslip') {
+      // No hourly-rate pay calculation — pay isn't computed from hours here;
+      // shortfalls are made up with extra work rather than deducted, so this
+      // is an attendance summary, not a wage computation.
       const hours = hoursForUser(u.id);
-      const rate = Number(u.hourlyRate) || 0;
-      const total = Math.round(hours * rate);
       doc.setFont('helvetica', 'normal');
       [
         `Period: ${from} to ${to}`,
         `Role: ${u.role}`,
-        `Hours worked: ${hours.toFixed(1)}`,
-        `Hourly rate: ${rate.toLocaleString()} FCFA`,
       ].forEach((line) => { doc.text(line, margin, y); y += 20; });
       y += 10;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(13);
-      doc.text(`Total pay: ${total.toLocaleString()} FCFA`, margin, y);
+      doc.text(`Hours worked: ${hours.toFixed(1)}`, margin, y);
     } else {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(13);
@@ -4454,7 +4453,7 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
         const { path } = await api.uploadDocument(`${msgType}-${u.name}`, dataUrl);
         const pdfUrl = `${window.location.origin}${path}`;
         const text = msgType === 'payslip'
-          ? `Hello ${u.name}, here is your payslip for ${from} to ${to}: ${pdfUrl}`
+          ? `Hello ${u.name}, here is your attendance summary for ${from} to ${to}: ${pdfUrl}`
           : `Hello ${u.name}, ${noticeTitle ? noticeTitle + ' — ' : ''}please see: ${pdfUrl}`;
         results.push({ user: u, pdfUrl, waLink: `https://wa.me/${normalizePhone(u.whatsapp)}?text=${encodeURIComponent(text)}` });
       } catch (e) {
@@ -4485,7 +4484,7 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
       {step === 1 ? (
         <>
           <div className="grid grid-cols-2 gap-2 mb-4">
-            {[{ id: 'payslip', label: 'Payslip' }, { id: 'notice', label: 'General notice' }].map((opt) => (
+            {[{ id: 'payslip', label: 'Attendance summary' }, { id: 'notice', label: 'General notice' }].map((opt) => (
               <button key={opt.id} type="button" onClick={() => setMsgType(opt.id)}
                 className={`py-2.5 rounded-lg text-sm font-medium border ${msgType === opt.id ? 'border-rose-900 bg-rose-900 text-white' : 'border-stone-200 text-stone-600 hover:bg-stone-50'}`}>
                 {opt.label}

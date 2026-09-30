@@ -797,7 +797,7 @@ export function SupplierForm({ open, onClose, initial }) {
 export function UserForm({ open, onClose, initial }) {
   const { upsertUser } = useData();
   const { toast } = useToast();
-  const blank = { name: '', username: '', role: 'cashier', email: '', store: 'Central', pin: '1234', whatsapp: '', hourlyRate: 0 };
+  const blank = { name: '', username: '', role: 'cashier', email: '', store: 'Central', pin: '1234', whatsapp: '' };
   const [form, setForm] = useState(initial || blank);
   useEffect(() => { setForm(initial ? { ...initial, pin: '' } : blank); }, [initial, open]);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -828,15 +828,10 @@ export function UserForm({ open, onClose, initial }) {
         <Field label="Role"><SelectInput value={form.role} onChange={set('role')} options={[{ value: 'admin', label: 'Admin' }, { value: 'manager', label: 'Manager' }, { value: 'cashier', label: 'Cashier' }, { value: 'accountant', label: 'Accountant' }]} /></Field>
         <Field label="Store"><Input value={form.store} onChange={set('store')} /></Field>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="WhatsApp number">
-          <Input value={form.whatsapp || ''} onChange={set('whatsapp')} placeholder="+237 6XX XXX XXX" />
-        </Field>
-        <Field label="Hourly rate (FCFA)">
-          <Input type="number" value={form.hourlyRate || 0} onChange={set('hourlyRate')} />
-        </Field>
-      </div>
-      <p className="text-xs text-stone-400 -mt-1 mb-1">WhatsApp needs the country code (e.g. +237 677001122) — both are used by Settings &gt; Users &gt; "Notify via WhatsApp".</p>
+      <Field label="WhatsApp number">
+        <Input value={form.whatsapp || ''} onChange={set('whatsapp')} placeholder="+237 6XX XXX XXX" />
+      </Field>
+      <p className="text-xs text-stone-400 -mt-1 mb-1">Needs the country code (e.g. +237 677001122) — used by Settings &gt; Users &gt; "Notify via WhatsApp".</p>
       {!initial?.id
         ? <Field label="Login PIN (4–6 digits)"><Input value={form.pin} onChange={set('pin')} inputMode="numeric" placeholder="1234" /></Field>
         : <p className="text-xs text-stone-400 -mt-1">Use “Reset PIN” in the users table to change this user's PIN.</p>}
@@ -851,7 +846,7 @@ export function UserForm({ open, onClose, initial }) {
 export function EmployeeForm({ open, onClose, initial }) {
   const { upsertEmployee } = useData();
   const { toast } = useToast();
-  const blank = { name: '', role: '', rate: 0 };
+  const blank = { name: '', role: '' };
   const [form, setForm] = useState(initial || blank);
   useEffect(() => { setForm(initial || blank); }, [initial, open]);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -870,10 +865,7 @@ export function EmployeeForm({ open, onClose, initial }) {
     <Modal open={open} onClose={onClose} title={initial?.id ? 'Edit employee' : 'Add employee'}
       footer={<><GhostBtn onClick={onClose}>Cancel</GhostBtn><PrimaryBtn onClick={save}>Save</PrimaryBtn></>}>
       <Field label="Full name"><Input value={form.name} onChange={set('name')} /></Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Role"><Input value={form.role} onChange={set('role')} placeholder="e.g. Salesperson, Stocker" /></Field>
-        <Field label="Hourly rate (FCFA)"><Input type="number" value={form.rate || 0} onChange={set('rate')} /></Field>
-      </div>
+      <Field label="Role"><Input value={form.role} onChange={set('role')} placeholder="e.g. Salesperson, Stocker" /></Field>
     </Modal>
   );
 }
