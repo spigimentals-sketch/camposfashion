@@ -315,6 +315,16 @@ try {
   console.warn('users-column migration skipped:', e.message);
 }
 
+// Same WhatsApp-notification field as users.whatsapp, but for the Staff
+// Register roster — lets an attendance summary go to a no-login employee
+// too, not just logged-in staff.
+try {
+  const ecols = db.prepare('PRAGMA table_info(employees)').all().map(c => c.name);
+  if (!ecols.includes('whatsapp')) db.exec('ALTER TABLE employees ADD COLUMN whatsapp TEXT');
+} catch (e) {
+  console.warn('employees-column migration skipped:', e.message);
+}
+
 // Ensure cost columns exist for margin tracking on older databases.
 try {
   const pcols = db.prepare('PRAGMA table_info(products)').all().map(c => c.name);

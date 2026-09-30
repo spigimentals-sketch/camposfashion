@@ -846,7 +846,7 @@ export function UserForm({ open, onClose, initial }) {
 export function EmployeeForm({ open, onClose, initial }) {
   const { upsertEmployee } = useData();
   const { toast } = useToast();
-  const blank = { name: '', role: '' };
+  const blank = { name: '', role: '', whatsapp: '' };
   const [form, setForm] = useState(initial || blank);
   useEffect(() => { setForm(initial || blank); }, [initial, open]);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -866,6 +866,9 @@ export function EmployeeForm({ open, onClose, initial }) {
       footer={<><GhostBtn onClick={onClose}>Cancel</GhostBtn><PrimaryBtn onClick={save}>Save</PrimaryBtn></>}>
       <Field label="Full name"><Input value={form.name} onChange={set('name')} /></Field>
       <Field label="Role"><Input value={form.role} onChange={set('role')} placeholder="e.g. Salesperson, Stocker" /></Field>
+      <Field label="WhatsApp number" hint="Needed to send this employee an attendance summary from Shifts">
+        <Input value={form.whatsapp || ''} onChange={set('whatsapp')} placeholder="+237 6XX XXX XXX" />
+      </Field>
     </Modal>
   );
 }

@@ -4361,7 +4361,12 @@ function finishLetterheadPdf(doc, { settings = {} } = {}) {
 // employee and a wa.me link pre-filled with a message containing a link to
 // it (wa.me can only pre-fill text, never attach a file); the admin still
 // has to click "Send" once per person — there's no way around that part.
-const WhatsAppNotifyModal = ({ open, onClose, users }) => {
+// `recipients` is a mixed list of logged-in users and Staff Register
+// employees, each tagged { ...person, kind: 'user' | 'employee' } by the
+// caller — needed because a self-service clock-in sets shifts.userId while
+// a Staff Register clock-in sets shifts.employeeId (see subjectKey in
+// ShiftsView), so which field to match on depends on who this is.
+const WhatsAppNotifyModal = ({ open, onClose, recipients }) => {
   const { shifts: liveShifts, settings: liveSettings } = useData();
   const { toast } = useToast();
   const [step, setStep] = useState(1);
@@ -4385,16 +4390,13 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
     setNoticeTitle('');
     setNoticeBody('');
     const sel = {};
-    users.forEach((u) => { if (u.whatsapp) sel[u.id] = true; });
+    recipients.forEach((u) => { if (u.whatsapp) sel[u.id] = true; });
     setSelected(sel);
   }, [open]); // eslint-disable-line
 
-  // Self-service clock-ins (a logged-in user clocking themselves in/out)
-  // set shifts.userId, not employeeId — employeeId is only for the Staff
-  // Register's no-login roster (see subjectKey in ShiftsView). This modal
-  // only ever sends to `users`, so it must match on userId.
-  const summaryForUser = (userId) => summarizeHours((liveShifts || [])
-    .filter((s) => String(s.userId) === String(userId) && (s.clockIn || '').slice(0, 10) >= from && (s.clockIn || '').slice(0, 10) <= to));
+  const summaryForUser = (u) => summarizeHours((liveShifts || [])
+    .filter((s) => String(u.kind === 'employee' ? s.employeeId : s.userId) === String(u.id)
+      && (s.clockIn || '').slice(0, 10) >= from && (s.clockIn || '').slice(0, 10) <= to));
 
   const buildPdf = async (u) => {
     const { doc, margin, startY } = await createLetterheadPdf({
@@ -4415,7 +4417,7 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
       // No hourly-rate pay calculation — pay isn't computed from hours here;
       // shortfalls are made up with extra work rather than deducted, so this
       // is an attendance summary, not a wage computation.
-      const { daysWorked, actualHours, expectedHours, hoursShort } = summaryForUser(u.id);
+      const { daysWorked, actualHours, expectedHours, hoursShort } = summaryForUser(u);
       doc.setFont('helvetica', 'normal');
       [
         `Period: ${from} to ${to}`,
@@ -4451,7 +4453,7 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
     reader.readAsDataURL(blob);
   });
 
-  const eligible = users.filter((u) => selected[u.id] && u.whatsapp);
+  const eligible = recipients.filter((u) => selected[u.id] && u.whatsapp);
 
   const generate = async () => {
     if (msgType === 'notice' && !noticeBody.trim()) { toast('Write the notice message first', 'error'); return; }
@@ -4479,7 +4481,7 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
 
   const toggleAll = (value) => {
     const sel = {};
-    users.forEach((u) => { if (u.whatsapp) sel[u.id] = value; });
+    recipients.forEach((u) => { if (u.whatsapp) sel[u.id] = value; });
     setSelected(sel);
   };
 
@@ -4527,7 +4529,7 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
             </div>
           </div>
           <div className="border border-stone-200 rounded-lg divide-y divide-stone-100 max-h-52 overflow-y-auto">
-            {users.map((u) => (
+            {recipients.map((u) => (
               <label key={u.id} className={`flex items-center gap-3 px-3 py-2 ${u.whatsapp ? 'cursor-pointer hover:bg-stone-50' : 'opacity-50'}`}>
                 <input type="checkbox" disabled={!u.whatsapp} checked={!!selected[u.id]}
                   onChange={(e) => setSelected((s) => ({ ...s, [u.id]: e.target.checked }))}
@@ -5092,7 +5094,8 @@ const SettingsView = () => {
         </div>
       </div>
       <UserForm open={userModal} onClose={() => setUserModal(false)} initial={editingUser} />
-      <WhatsAppNotifyModal open={whatsappModal} onClose={() => setWhatsappModal(false)} users={users} />
+      <WhatsAppNotifyModal open={whatsappModal} onClose={() => setWhatsappModal(false)}
+        recipients={users.map(u => ({ ...u, kind: 'user' }))} />
 
       <Modal open={!!pinTarget} onClose={() => setPinTarget(null)} title={pinTarget ? `Reset PIN — ${pinTarget.name}` : 'Reset PIN'}
         footer={<>
@@ -5297,13 +5300,14 @@ const ShiftsView = () => {
   const { user } = useAuth();
   const { can } = useRole();
   const { toast } = useToast();
-  const { employees, patch } = useData();
+  const { employees, users: liveUsers, patch } = useData();
   const { shifts, activeShifts, myShift, clockIn, clockOut, registerClockIn, registerClockOut } = useShifts();
   const [clockOutModal, setClockOutModal] = useState(false);
   const [countedCash, setCountedCash] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [employeeModal, setEmployeeModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
+  const [waTarget, setWaTarget] = useState(null); // single recipient for a per-name "Notify via WhatsApp"
   const onHandheld = isHandheldUA(navigator.userAgent);
 
   const isManager = user?.role === 'manager' || user?.role === 'admin';
@@ -5384,10 +5388,17 @@ const ShiftsView = () => {
     const bySubject = {};
     shifts.filter(s => (s.clockIn || '').slice(0, 10) >= monthStartStr).forEach(s => {
       const key = subjectKey(s);
-      (bySubject[key] = bySubject[key] || { name: s.name, role: s.role, shifts: [] }).shifts.push(s);
+      const kind = s.userId != null ? 'user' : 'employee';
+      const id = s.userId != null ? s.userId : s.employeeId;
+      (bySubject[key] = bySubject[key] || { id, kind, name: s.name, role: s.role, shifts: [] }).shifts.push(s);
     });
     return Object.values(bySubject)
-      .map(v => ({ name: v.name, role: v.role, ...summarizeHours(v.shifts) }))
+      .map(v => {
+        const whatsapp = v.kind === 'user'
+          ? (liveUsers || []).find(u => String(u.id) === String(v.id))?.whatsapp
+          : (employees || []).find(e => String(e.id) === String(v.id))?.whatsapp;
+        return { id: v.id, kind: v.kind, name: v.name, role: v.role, whatsapp, ...summarizeHours(v.shifts) };
+      })
       .sort((a, b) => b.hoursShort - a.hoursShort);
   })();
 
@@ -5558,6 +5569,7 @@ const ShiftsView = () => {
                   <th className="text-right font-medium px-5 py-3">Hours worked</th>
                   <th className="text-right font-medium px-5 py-3">Expected</th>
                   <th className="text-right font-medium px-5 py-3">Hours short</th>
+                  <th className="px-5 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
@@ -5572,6 +5584,13 @@ const ShiftsView = () => {
                     <td className="px-5 py-3 text-right text-stone-600">{formatHours(r.expectedHours)}</td>
                     <td className={`px-5 py-3 text-right font-medium ${r.hoursShort > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
                       {r.hoursShort > 0 ? formatHours(r.hoursShort) : 'On target'}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <button onClick={() => setWaTarget(r)} disabled={!r.whatsapp}
+                        title={r.whatsapp ? 'Send attendance summary via WhatsApp' : 'No WhatsApp number on file'}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-stone-200 text-stone-600 hover:bg-stone-50 disabled:opacity-30 disabled:cursor-not-allowed">
+                        <MessageCircle size={13} /> WhatsApp
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -5679,6 +5698,9 @@ const ShiftsView = () => {
 
       <ClockInCameraModal open={showCamera} onClose={() => setShowCamera(false)} onCapture={handleCapture} />
       <EmployeeForm open={employeeModal} onClose={() => setEmployeeModal(false)} initial={editingEmployee} />
+      {waTarget && (
+        <WhatsAppNotifyModal open={!!waTarget} onClose={() => setWaTarget(null)} recipients={[waTarget]} />
+      )}
     </div>
   );
 };

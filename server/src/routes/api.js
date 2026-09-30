@@ -601,12 +601,12 @@ const employeeInitials = (name) => (name || '?').split(' ').filter(Boolean).map(
 r.get('/employees', h((req, res) => res.json(db.prepare('SELECT * FROM employees ORDER BY id').all())));
 
 r.post('/employees', requireAuth, requireRole('admin', 'manager'), h((req, res) => {
-  const { name, role = '', rate = 0 } = req.body || {};
+  const { name, role = '', rate = 0, whatsapp = '' } = req.body || {};
   if (!name || !name.trim()) throw new Error('name is required');
   const count = db.prepare('SELECT COUNT(*) AS n FROM employees').get().n;
   const color = EMPLOYEE_COLORS[count % EMPLOYEE_COLORS.length];
-  const info = db.prepare('INSERT INTO employees (name,role,initials,color,rate) VALUES (?,?,?,?,?)')
-    .run(name.trim(), role, employeeInitials(name), color, Number(rate) || 0);
+  const info = db.prepare('INSERT INTO employees (name,role,initials,color,rate,whatsapp) VALUES (?,?,?,?,?,?)')
+    .run(name.trim(), role, employeeInitials(name), color, Number(rate) || 0, whatsapp || null);
   res.status(201).json(db.prepare('SELECT * FROM employees WHERE id=?').get(info.lastInsertRowid));
 }));
 
@@ -614,8 +614,8 @@ r.put('/employees/:id', requireAuth, requireRole('admin', 'manager'), h((req, re
   const cur = db.prepare('SELECT * FROM employees WHERE id=?').get(req.params.id);
   if (!cur) throw new Error('employee not found');
   const n = { ...cur, ...req.body };
-  db.prepare('UPDATE employees SET name=?,role=?,initials=?,rate=? WHERE id=?')
-    .run(n.name, n.role || '', employeeInitials(n.name), Number(n.rate) || 0, req.params.id);
+  db.prepare('UPDATE employees SET name=?,role=?,initials=?,rate=?,whatsapp=? WHERE id=?')
+    .run(n.name, n.role || '', employeeInitials(n.name), Number(n.rate) || 0, n.whatsapp || null, req.params.id);
   res.json(db.prepare('SELECT * FROM employees WHERE id=?').get(req.params.id));
 }));
 
