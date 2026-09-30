@@ -804,6 +804,7 @@ const QRPattern = () => {
 const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   const { t, lang } = useT();
   const { activeCashier } = useShifts();
+  const { toast } = useToast();
   // Every field printed on this receipt must come from the logged-in
   // shop's own settings — this component is shared across every shop on
   // the platform, so it must never hardcode one shop's name/address/tax
@@ -811,6 +812,12 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   // compliance problem, not just cosmetic).
   const { settings } = useData();
   const shopName = settings?.businessName || 'Point of Sale';
+  const [waLink, setWaLink] = useState(null);
+  const [waPreparing, setWaPreparing] = useState(false);
+  // Reset once a new sale's receipt replaces this one — otherwise a stale
+  // "Send" link from the PREVIOUS customer's receipt could linger and get
+  // clicked against the current one.
+  useEffect(() => { setWaLink(null); setWaPreparing(false); }, [data]);
   // Inject a scoped @page rule so the receipt prints on 80 mm thermal paper.
   // Done here rather than in index.css so it doesn't affect the Reports
   // page, which also calls window.print() but needs a full-size page.
@@ -836,6 +843,32 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   const paid = total;
   const change = 0;
   const productName = (p) => lang === 'fr' ? (PRODUCT_NAMES_FR[p.id] || p.name) : p.name;
+
+  // Same wa.me pattern as the Shifts/Users WhatsApp notify flow: no paid
+  // WhatsApp Business API here, so this can only pre-fill a message with a
+  // link to an uploaded PDF and open the chat — the cashier still has to
+  // press Send themselves in WhatsApp.
+  const sendViaWhatsApp = async () => {
+    if (!customer?.phone) return;
+    setWaPreparing(true);
+    try {
+      const doc = await buildReceiptPdf(data, settings || {});
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Could not read generated PDF'));
+        reader.readAsDataURL(doc.output('blob'));
+      });
+      const { path } = await api.uploadDocument(`receipt-${invoiceNo || Date.now()}`, dataUrl);
+      const pdfUrl = `${window.location.origin}${path}`;
+      const text = `Hello ${customer.name || ''}, here is your receipt for ${fmt(total)}: ${pdfUrl}`;
+      setWaLink(`https://wa.me/${normalizePhone(customer.phone)}?text=${encodeURIComponent(text)}`);
+    } catch (e) {
+      toast(e.message || 'Could not prepare the WhatsApp receipt', 'error');
+    } finally {
+      setWaPreparing(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -979,10 +1012,23 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
         </div>
 
         {/* Actions */}
-        <div className="border-t border-stone-200 p-4 grid grid-cols-2 gap-2 flex-shrink-0">
+        <div className={`border-t border-stone-200 p-4 grid gap-2 flex-shrink-0 ${customer?.phone ? 'grid-cols-3' : 'grid-cols-2'}`}>
           <button onClick={() => window.print()} className="flex items-center justify-center gap-1.5 py-2 border border-stone-200 bg-white rounded-lg text-xs font-medium hover:bg-stone-50">
             <Printer size={14} /> {t('print')}
           </button>
+          {customer?.phone && (
+            waLink ? (
+              <a href={waLink} target="_blank" rel="noreferrer"
+                className="flex items-center justify-center gap-1.5 py-2 border border-emerald-200 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-medium hover:bg-emerald-100">
+                <MessageCircle size={14} /> Send
+              </a>
+            ) : (
+              <button onClick={sendViaWhatsApp} disabled={waPreparing}
+                className="flex items-center justify-center gap-1.5 py-2 border border-stone-200 bg-white rounded-lg text-xs font-medium hover:bg-stone-50 disabled:opacity-50">
+                <MessageCircle size={14} /> {waPreparing ? 'Preparing…' : 'WhatsApp'}
+              </button>
+            )
+          )}
           <button onClick={() => { onNewOrder ? onNewOrder() : onClose(); }} className="py-2 bg-rose-900 text-white rounded-lg text-xs font-medium hover:bg-rose-800">
             {onNewOrder ? t('new_order') : t('close')}
           </button>
@@ -4353,6 +4399,99 @@ function finishLetterheadPdf(doc, { settings = {} } = {}) {
     if (left) doc.text(left, margin, y);
     doc.text(`Page ${i} of ${pageCount}   •   Generated ${new Date().toLocaleDateString()}`, pageWidth - margin, y, { align: 'right' });
   }
+}
+
+// A PDF version of the printed receipt, for the "Send via WhatsApp" action —
+// same letterhead as every other generated document, but no signature block
+// (finishLetterheadPdf's is meant for payslips/notices, not a sales receipt
+// handed to a customer), just a plain page-footer instead.
+async function buildReceiptPdf(data, settings) {
+  const { doc, margin, startY } = await createLetterheadPdf({ docTitle: 'Receipt', settings });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const { items = [], subtotal = 0, discount = 0, pointsDiscountAmt = 0, creditUsed = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
+  let y = startY;
+
+  doc.setTextColor(28, 25, 23);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text(`Invoice: ${invoiceNo || '—'}`, margin, y);
+  doc.text(new Date().toLocaleString(), pageWidth - margin, y, { align: 'right' });
+  y += 16;
+  doc.text(`Customer: ${customer?.name || 'Walk-in'}`, margin, y);
+  y += 24;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(120, 113, 108);
+  doc.text('ITEM', margin, y);
+  doc.text('TOTAL', pageWidth - margin, y, { align: 'right' });
+  y += 8;
+  doc.setDrawColor(229, 229, 229);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 18;
+
+  items.forEach((it) => {
+    const variant = (it.size && it.size !== 'One Size') || it.color ? ` — ${[it.size, it.color].filter(Boolean).join(' / ')}` : '';
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.setTextColor(28, 25, 23);
+    doc.text(`${it.name || it.productName || ''}${variant}`, margin, y);
+    doc.text(fmt(it.price * it.qty), pageWidth - margin, y, { align: 'right' });
+    y += 15;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(120, 113, 108);
+    doc.text(`${it.qty} × ${fmt(it.price)}`, margin, y);
+    y += 18;
+  });
+
+  doc.setDrawColor(229, 229, 229);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 20;
+
+  const rows = [['Subtotal', fmt(subtotal)]];
+  if (discount > 0) rows.push(['Discount', `-${fmt(discount)}`]);
+  if (pointsDiscountAmt > 0) rows.push(['Points redeemed', `-${fmt(pointsDiscountAmt)}`]);
+  if (creditUsed > 0) rows.push(['Store credit', `-${fmt(creditUsed)}`]);
+  rows.forEach(([label, val]) => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.setTextColor(87, 83, 78);
+    doc.text(label, margin, y);
+    doc.text(val, pageWidth - margin, y, { align: 'right' });
+    y += 16;
+  });
+  y += 6;
+  doc.setDrawColor(28, 25, 23);
+  doc.setLineWidth(0.75);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 22;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(28, 25, 23);
+  doc.text('Total', margin, y);
+  doc.text(fmt(total), pageWidth - margin, y, { align: 'right' });
+  y += 24;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(120, 113, 108);
+  doc.text(`Paid by ${method}`, margin, y);
+
+  // Plain page footer — no "Manager" signature line; that's for
+  // payslips/notices, not a receipt handed to a customer.
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const footY = pageHeight - 36;
+  doc.setDrawColor(229, 229, 229);
+  doc.setLineWidth(0.5);
+  doc.line(margin, footY - 14, pageWidth - margin, footY - 14);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 113, 108);
+  const left = [settings.rccm, settings.niu].filter(Boolean).join('   •   ');
+  if (left) doc.text(left, margin, footY);
+  doc.text(settings.receiptFooter || 'Thank you for your purchase', pageWidth - margin, footY, { align: 'right' });
+
+  return doc;
 }
 
 // WhatsApp can't be made to auto-send a file into someone's DM from a web
