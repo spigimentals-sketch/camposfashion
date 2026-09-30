@@ -5686,11 +5686,10 @@ const ExpensesView = () => {
   const { toast } = useToast();
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [typeFilter, setTypeFilter] = useState('all');
   const [breakeven, setBreakeven] = useState(null);
   const [monthlyTrend, setMonthlyTrend] = useState([]);
   const today = new Date().toISOString().slice(0, 10);
-  const blank = { date: today, category: 'Rent', payee: '', amount: '', method: 'cash', note: '', type: 'operating' };
+  const blank = { date: today, category: 'Rent', payee: '', amount: '', method: 'cash', note: '' };
   const [form, setForm] = useState(blank);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -5718,7 +5717,7 @@ const ExpensesView = () => {
       api.breakevenReport().then(setBreakeven).catch(() => {});
       api.amountLeftTrend(12).then(setMonthlyTrend).catch(() => {});
       toast('Expense recorded');
-      setForm({ ...blank, date: form.date, type: form.type });
+      setForm({ ...blank, date: form.date });
     } catch (e) {
       if (!e.status) {
         queueMutation('expense', payload);
@@ -5742,12 +5741,12 @@ const ExpensesView = () => {
     } catch (e) { toast(e.message, 'error'); }
   };
 
-  const visibleExpenses = typeFilter === 'all' ? expenses : expenses.filter(e => (e.type || 'operating') === typeFilter);
+  const visibleExpenses = expenses;
   const total = visibleExpenses.reduce((s, e) => s + (e.amount || 0), 0);
   const exportCsv = () => {
-    const rows = [['Date', 'Type', 'Category', 'Payee', 'Amount (FCFA)', 'Method', 'Note', 'Recorded by']];
-    visibleExpenses.forEach(e => rows.push([e.date, e.type === 'setup' ? 'Setup' : 'Operating', e.category, e.payee, e.amount, e.method, e.note, e.createdBy || '']));
-    rows.push([]); rows.push(['', '', '', 'TOTAL', total]);
+    const rows = [['Date', 'Category', 'Payee', 'Amount (FCFA)', 'Method', 'Note', 'Recorded by']];
+    visibleExpenses.forEach(e => rows.push([e.date, e.category, e.payee, e.amount, e.method, e.note, e.createdBy || '']));
+    rows.push([]); rows.push(['', '', 'TOTAL', total]);
     downloadCsv(`expenses-${today}.csv`, rows);
   };
 
@@ -5767,6 +5766,31 @@ const ExpensesView = () => {
               <div className="flex justify-between gap-4"><span>− Total expenses</span><span className="font-medium">{fmt(breakeven.allTimeExpenses)}</span></div>
             </div>
           </div>
+        </div>
+      )}
+
+      {can.expenses && (
+        <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
+          <h3 className="font-serif text-lg text-stone-900 mb-4" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Record an expense</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div><label className="block text-[11px] text-stone-500 mb-1">Date</label>
+              <input type="date" value={form.date} max={today} onChange={set('date')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
+            <div><label className="block text-[11px] text-stone-500 mb-1">Category</label>
+              <select value={form.category} onChange={set('category')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
+                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select></div>
+            <div><label className="block text-[11px] text-stone-500 mb-1">Payee</label>
+              <input value={form.payee} onChange={set('payee')} placeholder="Who paid" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
+            <div><label className="block text-[11px] text-stone-500 mb-1">Amount (FCFA)</label>
+              <input type="number" value={form.amount} onChange={set('amount')} placeholder="0" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
+            <div><label className="block text-[11px] text-stone-500 mb-1">Method</label>
+              <select value={form.method} onChange={set('method')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
+                <option value="cash">Cash</option><option value="mobile">Mobile money</option><option value="bank">Bank</option>
+              </select></div>
+            <div className="flex items-end"><button onClick={add} className="w-full px-3 py-2 rounded-lg bg-rose-900 text-white text-sm font-medium hover:bg-rose-800">Add</button></div>
+          </div>
+          <div className="mt-3"><label className="block text-[11px] text-stone-500 mb-1">Note (optional)</label>
+            <input value={form.note} onChange={set('note')} placeholder="Description" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
         </div>
       )}
 
@@ -5801,41 +5825,6 @@ const ExpensesView = () => {
         </div>
       )}
 
-      {can.expenses && (
-        <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
-          <h3 className="font-serif text-lg text-stone-900 mb-4" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Record an expense</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-            <div><label className="block text-[11px] text-stone-500 mb-1">Date</label>
-              <input type="date" value={form.date} max={today} onChange={set('date')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
-            <div><label className="block text-[11px] text-stone-500 mb-1">Type</label>
-              <select value={form.type} onChange={set('type')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
-                <option value="operating">Operating</option><option value="setup">Setup (one-time)</option>
-              </select></div>
-            <div><label className="block text-[11px] text-stone-500 mb-1">Category</label>
-              <select value={form.category} onChange={set('category')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
-                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select></div>
-            <div><label className="block text-[11px] text-stone-500 mb-1">Payee</label>
-              <input value={form.payee} onChange={set('payee')} placeholder="Who paid" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
-            <div><label className="block text-[11px] text-stone-500 mb-1">Amount (FCFA)</label>
-              <input type="number" value={form.amount} onChange={set('amount')} placeholder="0" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
-            <div><label className="block text-[11px] text-stone-500 mb-1">Method</label>
-              <select value={form.method} onChange={set('method')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
-                <option value="cash">Cash</option><option value="mobile">Mobile money</option><option value="bank">Bank</option>
-              </select></div>
-            <div className="flex items-end"><button onClick={add} className="w-full px-3 py-2 rounded-lg bg-rose-900 text-white text-sm font-medium hover:bg-rose-800">Add</button></div>
-          </div>
-          <div className="mt-3"><label className="block text-[11px] text-stone-500 mb-1">Note (optional)</label>
-            <input value={form.note} onChange={set('note')} placeholder="Description" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
-          {form.type === 'setup' && (
-            <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Setup expenses are one-time, pre-opening costs you're trying to recoup — e.g. registration, legal fees, renovation labor.
-              <strong> Don't include anything you still own and could resell</strong> (equipment, vehicles, furniture, property) — those are assets, not sunk costs, and belong under "Operating" or not recorded as an expense at all.
-            </p>
-          )}
-        </div>
-      )}
-
       {breakeven && breakeven.setupCost > 0 && (
         <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
           <div className="flex items-center justify-between mb-3">
@@ -5862,21 +5851,13 @@ const ExpensesView = () => {
             <h3 className="font-semibold text-stone-900">Expenses</h3>
             <p className="text-xs text-stone-500 mt-0.5">Total recorded: <span className="font-medium text-rose-700">{fmt(total)}</span></p>
           </div>
-          <div className="flex items-center gap-2">
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="text-xs px-2.5 py-1.5 border border-stone-200 rounded-lg">
-              <option value="all">All types</option>
-              <option value="operating">Operating only</option>
-              <option value="setup">Setup only</option>
-            </select>
-            <button onClick={exportCsv} className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5"><Download size={13} /> Export CSV</button>
-          </div>
+          <button onClick={exportCsv} className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5"><Download size={13} /> Export CSV</button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-xs text-stone-500 bg-stone-50/60">
               <tr>
                 <th className="text-left font-medium px-5 py-3">Date</th>
-                <th className="text-left font-medium px-5 py-3">Type</th>
                 <th className="text-left font-medium px-5 py-3">Category</th>
                 <th className="text-left font-medium px-5 py-3">Payee</th>
                 <th className="text-left font-medium px-5 py-3">Method</th>
@@ -5886,15 +5867,10 @@ const ExpensesView = () => {
             </thead>
             <tbody className="divide-y divide-stone-100">
               {visibleExpenses.length === 0 ? (
-                <tr><td colSpan={can.expenses ? 7 : 6} className="px-5 py-8 text-center text-stone-400">{loading ? 'Loading…' : 'No expenses recorded yet.'}</td></tr>
+                <tr><td colSpan={can.expenses ? 6 : 5} className="px-5 py-8 text-center text-stone-400">{loading ? 'Loading…' : 'No expenses recorded yet.'}</td></tr>
               ) : visibleExpenses.map(e => (
                 <tr key={e.id}>
                   <td className="px-5 py-3 text-stone-600">{e.date}</td>
-                  <td className="px-5 py-3">
-                    {e.type === 'setup'
-                      ? <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800">Setup</span>
-                      : <span className="text-xs px-2 py-1 rounded-full bg-stone-100 text-stone-600">Operating</span>}
-                  </td>
                   <td className="px-5 py-3"><span className="text-xs px-2 py-1 rounded-full bg-stone-100 text-stone-700">{e.category}</span></td>
                   <td className="px-5 py-3 text-stone-700">{e.payee || '—'}{e.note ? <span className="block text-xs text-stone-400">{e.note}</span> : null}</td>
                   <td className="px-5 py-3 text-stone-600 capitalize">{e.method}</td>
