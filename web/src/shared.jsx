@@ -341,7 +341,8 @@ const PRODUCT_EMOJIS = [
 ];
 
 export function ProductForm({ open, onClose, initial }) {
-  const { upsertProduct, patch, categories: liveCategories, upsertCategory } = useData();
+  const { upsertProduct, patch, categories: liveCategories, upsertCategory, settings } = useData();
+  const useVariants = settings?.useVariants !== false;
   const { toast } = useToast();
   const blank = { name: '', name_fr: '', category: 'tshirts', price: 0, cost: 0, sku: '', emoji: '📦', image: null, packetPrice: 0, unitsPerPacket: 0, halfPacketPrice: 0, variants: [{ size: '', color: '', sku: '', stock: 0 }] };
   const [form, setForm] = useState(initial || blank);
@@ -584,6 +585,10 @@ export function ProductForm({ open, onClose, initial }) {
     };
     delete payload.stock;
     if (!payload.sku) payload.sku = makeSku(payload.category);
+    // Variants off: the only SKU the user ever sees is the product-level
+    // field, so keep the (single) variant's own SKU mirrored to it — that's
+    // what checkout/scan actually match against (see variantsOf).
+    if (!useVariants) payload.variants = [{ ...payload.variants[0], size: payload.variants[0].size || 'One Size', sku: payload.sku }];
     try {
       const saved = initial?.id
         ? await api.updateProduct(initial.id, payload)
@@ -746,58 +751,67 @@ export function ProductForm({ open, onClose, initial }) {
 
       {/* Variants: every style is sold as one or more size/color combos, each
           with its own SKU and stock count — price/cost above apply to all of
-          them. A simple accessory with no real sizing just keeps one row. */}
-      <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-semibold text-stone-600 uppercase tracking-wider">Variants (size / color)</div>
-          <div className="text-xs text-stone-500">Total stock: <span className="font-semibold text-stone-700">{totalStock}</span></div>
-        </div>
-        <div className="space-y-2">
-          {(form.variants || []).map((v, idx) => (
-            <div key={idx} className="flex flex-wrap items-end gap-2 p-2.5 bg-white rounded-lg border border-stone-200">
-              <div className="flex-1 min-w-[90px]">
-                <label className="block text-[11px] text-stone-500 mb-1">Size</label>
-                <Input value={v.size} onChange={e => updateVariant(idx, 'size', e.target.value)} placeholder="e.g. M" />
-              </div>
-              <div className="flex-1 min-w-[90px]">
-                <label className="block text-[11px] text-stone-500 mb-1">Color</label>
-                <Input value={v.color} onChange={e => updateVariant(idx, 'color', e.target.value)} placeholder="e.g. Black" />
-              </div>
-              <div className="flex-[1.4] min-w-[140px]">
-                <label className="block text-[11px] text-stone-500 mb-1">SKU</label>
-                <div className="flex gap-1">
-                  <Input value={v.sku} onChange={e => updateVariant(idx, 'sku', e.target.value)} placeholder="auto-generated" />
-                  <button type="button" onClick={() => generateVariantSku(idx)}
-                    className="px-2.5 py-2 rounded-lg border border-stone-200 text-xs bg-stone-50 hover:bg-stone-100 flex-shrink-0">Gen</button>
+          them. A simple accessory with no real sizing just keeps one row.
+          Shops that don't sell in sizes/colors can turn this off entirely in
+          Settings ("Product variants"), which collapses this down to a
+          single stock field — see settings.useVariants. */}
+      {useVariants ? (
+        <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-stone-600 uppercase tracking-wider">Variants (size / color)</div>
+            <div className="text-xs text-stone-500">Total stock: <span className="font-semibold text-stone-700">{totalStock}</span></div>
+          </div>
+          <div className="space-y-2">
+            {(form.variants || []).map((v, idx) => (
+              <div key={idx} className="flex flex-wrap items-end gap-2 p-2.5 bg-white rounded-lg border border-stone-200">
+                <div className="flex-1 min-w-[90px]">
+                  <label className="block text-[11px] text-stone-500 mb-1">Size</label>
+                  <Input value={v.size} onChange={e => updateVariant(idx, 'size', e.target.value)} placeholder="e.g. M" />
                 </div>
+                <div className="flex-1 min-w-[90px]">
+                  <label className="block text-[11px] text-stone-500 mb-1">Color</label>
+                  <Input value={v.color} onChange={e => updateVariant(idx, 'color', e.target.value)} placeholder="e.g. Black" />
+                </div>
+                <div className="flex-[1.4] min-w-[140px]">
+                  <label className="block text-[11px] text-stone-500 mb-1">SKU</label>
+                  <div className="flex gap-1">
+                    <Input value={v.sku} onChange={e => updateVariant(idx, 'sku', e.target.value)} placeholder="auto-generated" />
+                    <button type="button" onClick={() => generateVariantSku(idx)}
+                      className="px-2.5 py-2 rounded-lg border border-stone-200 text-xs bg-stone-50 hover:bg-stone-100 flex-shrink-0">Gen</button>
+                  </div>
+                </div>
+                <div className="w-20">
+                  <label className="block text-[11px] text-stone-500 mb-1">Stock</label>
+                  <Input type="number" value={v.stock} onChange={e => updateVariant(idx, 'stock', e.target.value)} />
+                </div>
+                <button type="button" onClick={() => removeVariantRow(idx)} disabled={(form.variants || []).length <= 1}
+                  title={(form.variants || []).length <= 1 ? 'At least one variant is required' : 'Remove variant'}
+                  className="p-2 text-stone-400 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0">
+                  <Trash2 size={15} />
+                </button>
               </div>
-              <div className="w-20">
-                <label className="block text-[11px] text-stone-500 mb-1">Stock</label>
-                <Input type="number" value={v.stock} onChange={e => updateVariant(idx, 'stock', e.target.value)} />
-              </div>
-              <button type="button" onClick={() => removeVariantRow(idx)} disabled={(form.variants || []).length <= 1}
-                title={(form.variants || []).length <= 1 ? 'At least one variant is required' : 'Remove variant'}
-                className="p-2 text-stone-400 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0">
-                <Trash2 size={15} />
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-[11px] text-stone-500 mr-1">Quick add:</span>
+            {QUICK_SIZES.map(s => (
+              <button key={s} type="button"
+                onClick={() => setForm(f => ({ ...f, variants: [...(f.variants || []), { size: s, color: '', sku: '', stock: 0 }] }))}
+                className="px-2.5 py-1 rounded-full text-xs font-medium bg-white border border-stone-200 hover:border-rose-600 hover:bg-rose-50">
+                {s}
               </button>
-            </div>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5 pt-1">
-          <span className="text-[11px] text-stone-500 mr-1">Quick add:</span>
-          {QUICK_SIZES.map(s => (
-            <button key={s} type="button"
-              onClick={() => setForm(f => ({ ...f, variants: [...(f.variants || []), { size: s, color: '', sku: '', stock: 0 }] }))}
-              className="px-2.5 py-1 rounded-full text-xs font-medium bg-white border border-stone-200 hover:border-rose-600 hover:bg-rose-50">
-              {s}
+            ))}
+            <button type="button" onClick={addVariantRow}
+              className="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 border border-stone-200 hover:bg-stone-200">
+              + Blank row
             </button>
-          ))}
-          <button type="button" onClick={addVariantRow}
-            className="px-2.5 py-1 rounded-full text-xs font-medium bg-stone-100 border border-stone-200 hover:bg-stone-200">
-            + Blank row
-          </button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <Field label="Stock on hand">
+          <Input type="number" value={form.variants?.[0]?.stock ?? 0} onChange={e => updateVariant(0, 'stock', e.target.value)} />
+        </Field>
+      )}
 
       {/* Optional packet pricing — lets this product also be sold as a fixed-size
           packet (e.g. a case of 6) at its own price, alongside the unit price above.

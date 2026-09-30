@@ -4660,6 +4660,7 @@ const SettingsView = () => {
     paymentAlerts: true,
     multiStore: false,
     catalogEnabled: false,
+    useVariants: true,
   });
   const update = (k) => (v) => setSettings(prev => ({ ...prev, [k]: v }));
   // Fetched once, regardless of the toggle, so the shareable link is ready
@@ -4829,6 +4830,11 @@ const SettingsView = () => {
               <SettingsCard title="Multiple store locations" desc="Turn on if this shop sells from more than one physical location">
                 <SettingsField label="Enable multiple stores" hint="Off = one simple shop, no switcher shown anywhere">
                   <Toggle checked={settings.multiStore} onChange={update('multiStore')} />
+                </SettingsField>
+              </SettingsCard>
+              <SettingsCard title="Product variants" desc="Turn off if your products don't come in different sizes or colors">
+                <SettingsField label="Use size/color variants" hint="Off = Add Product shows one simple stock field instead of a variants list">
+                  <Toggle checked={settings.useVariants} onChange={update('useVariants')} />
                 </SettingsField>
               </SettingsCard>
               <SettingsCard title="Public catalog" desc="A shareable link showing what's currently in stock — post it on WhatsApp/Instagram. Browse-only, no orders taken through it. Never shows cost, stock counts, or anything about customers/sales.">
