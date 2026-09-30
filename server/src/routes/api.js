@@ -341,6 +341,21 @@ r.post('/categories', h((req, res) => {
   res.status(201).json({ id, label: trimmed });
 }));
 
+// Refuses to delete a category still holding products — there's no
+// reassignment UI, so silently orphaning products.category (a plain TEXT
+// column, not a real foreign key) would leave them pointing at a category
+// that no longer exists instead of actually moving them anywhere. Move
+// affected products to a different category first (Edit Product), then
+// delete.
+r.delete('/categories/:id', h((req, res) => {
+  const category = db.prepare('SELECT * FROM categories WHERE id=?').get(req.params.id);
+  if (!category) throw new Error('Category not found');
+  const inUse = db.prepare('SELECT COUNT(*) AS n FROM products WHERE category=?').get(req.params.id).n;
+  if (inUse > 0) throw new Error(`"${category.label}" still has ${inUse} product${inUse === 1 ? '' : 's'} in it — move them to another category first`);
+  db.prepare('DELETE FROM categories WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+}));
+
 // ---------------- STORES ----------------
 r.get('/stores', h((req, res) => {
   res.json(db.prepare('SELECT * FROM stores ORDER BY id').all());

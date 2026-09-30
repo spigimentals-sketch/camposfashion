@@ -2448,6 +2448,7 @@ const ProductsPanel = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [scanOpen, setScanOpen] = useState(false);
+  const [catsOpen, setCatsOpen] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [deleting, setDeleting] = useState(false);
   const [editingCost, setEditingCost] = useState(null); // { id, value }
@@ -2634,6 +2635,11 @@ const ProductsPanel = () => {
           <button onClick={exportProducts} className="sm:ml-auto order-3 flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-lg">
             <Download size={14} /> {t('export')}
           </button>
+          {can.addProducts && (
+            <button onClick={() => setCatsOpen(true)} className="order-4 flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-stone-200 text-stone-700 rounded-lg hover:bg-stone-50">
+              <LayoutGrid size={14} /> Categories
+            </button>
+          )}
           {can.addProducts && (
             <button onClick={() => setScanOpen(true)} className="order-4 flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-stone-200 text-stone-700 rounded-lg hover:bg-stone-50">
               <Scan size={14} /> Scan to add
@@ -2834,7 +2840,65 @@ const ProductsPanel = () => {
         title="Scan to add product"
         description="Scan a manufacturer's barcode with a USB scanner, or type it and press Enter. If it's new, you'll fill in the product details next; if it already exists, you'll edit that product."
         tip="" />
+      <CategoriesModal open={catsOpen} onClose={() => setCatsOpen(false)} products={products} />
     </>
+  );
+};
+
+// Lists every category with how many products currently use it, and lets
+// you delete the empty ones. A category still holding products can't be
+// deleted here (or server-side, even if this check somehow gets bypassed)
+// — move those products to a different category first via Edit Product,
+// since there's no bulk-reassign UI.
+const CategoriesModal = ({ open, onClose, products }) => {
+  const { categories: liveCategories, removeCategory } = useData();
+  const { toast } = useToast();
+  const [busyId, setBusyId] = useState(null);
+  const counts = new Map();
+  (products || []).forEach(p => counts.set(p.category, (counts.get(p.category) || 0) + 1));
+
+  const remove = async (cat) => {
+    const inUse = counts.get(cat.id) || 0;
+    if (inUse > 0) {
+      toast(`"${cat.label}" still has ${inUse} product${inUse === 1 ? '' : 's'} in it — move them to another category first`, 'error');
+      return;
+    }
+    if (!window.confirm(`Delete category "${cat.label}"?`)) return;
+    setBusyId(cat.id);
+    try {
+      await api.deleteCategory(cat.id);
+      removeCategory(cat.id);
+      toast(`"${cat.label}" deleted`);
+    } catch (e) {
+      toast(e.message || 'Could not delete category', 'error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Categories">
+      <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+        {(liveCategories || []).length === 0 ? (
+          <p className="text-sm text-stone-400 text-center py-6">No categories yet.</p>
+        ) : (liveCategories || []).map(cat => {
+          const inUse = counts.get(cat.id) || 0;
+          return (
+            <div key={cat.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-stone-200 bg-white">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-stone-900 truncate">{cat.label}</div>
+                <div className="text-[11px] text-stone-400">{inUse} product{inUse === 1 ? '' : 's'}</div>
+              </div>
+              <button onClick={() => remove(cat)} disabled={busyId === cat.id || inUse > 0}
+                title={inUse > 0 ? 'Move its products to another category first' : 'Delete category'}
+                className="p-2 text-stone-400 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0">
+                <Trash2 size={15} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </Modal>
   );
 };
 

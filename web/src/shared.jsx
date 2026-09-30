@@ -294,6 +294,7 @@ export function DataProvider({ fallback, children }) {
       const i = list.findIndex(x => x.id === c.id);
       return i >= 0 ? list.map(x => x.id === c.id ? c : x) : [...list, c];
     }),
+    removeCategory: (id) => patch('categories', list => list.filter(x => x.id !== id)),
     upsertCustomer: (c) => patch('customers', list => {
       const i = list.findIndex(x => x.id === c.id);
       return i >= 0 ? list.map(x => x.id === c.id ? c : x) : [...list, c];

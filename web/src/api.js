@@ -72,6 +72,7 @@ export const api = {
   // categories
   getCategories: () => req('GET', '/categories'),
   createCategory: (label) => req('POST', '/categories', { label }),
+  deleteCategory: (id) => req('DELETE', `/categories/${id}`),
   // store locations (optional multi-store feature, see Settings)
   getStores: () => req('GET', '/stores'),
   createStore: (s) => req('POST', '/stores', s),
