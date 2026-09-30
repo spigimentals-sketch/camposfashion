@@ -5681,7 +5681,7 @@ function AuthGate({ titles }) {
 const EXPENSE_CATEGORIES = ['Rent', 'Utilities', 'Salaries', 'Supplies', 'Transport', 'Maintenance', 'Taxes', 'Marketing', 'Other'];
 
 const ExpensesView = () => {
-  const { online, queueMutation } = useData();
+  const { online, queueMutation, employees, users: liveUsers } = useData();
   const { can } = useRole();
   const { toast } = useToast();
   const [expenses, setExpenses] = useState([]);
@@ -5692,6 +5692,12 @@ const ExpensesView = () => {
   const blank = { date: today, category: 'Rent', payee: '', amount: '', method: 'cash', note: '' };
   const [form, setForm] = useState(blank);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  // Payee names: the Staff Register roster plus logged-in staff (both are
+  // "employees" someone might be recording a payment to), sorted, deduped.
+  // "Other…" drops into free text for anyone/anything not on staff — rent,
+  // utilities, a supplier, etc. — so the dropdown never blocks a real entry.
+  const payeeNames = [...new Set([...(employees || []).map(e => e.name), ...(liveUsers || []).map(u => u.name)].filter(Boolean))].sort();
+  const [payeeOther, setPayeeOther] = useState(false);
 
   const load = async () => {
     if (!online) return;
@@ -5718,12 +5724,14 @@ const ExpensesView = () => {
       api.amountLeftTrend(12).then(setMonthlyTrend).catch(() => {});
       toast('Expense recorded');
       setForm({ ...blank, date: form.date });
+      setPayeeOther(false);
     } catch (e) {
       if (!e.status) {
         queueMutation('expense', payload);
         setExpenses(list => [{ ...payload, id: Date.now() }, ...list]);
         toast('Offline — expense saved on this device, will sync automatically once back online', 'info');
         setForm({ ...blank, date: form.date });
+        setPayeeOther(false);
       } else {
         toast(e.message, 'error');
       }
@@ -5744,8 +5752,8 @@ const ExpensesView = () => {
   const visibleExpenses = expenses;
   const total = visibleExpenses.reduce((s, e) => s + (e.amount || 0), 0);
   const exportCsv = () => {
-    const rows = [['Date', 'Category', 'Payee', 'Amount (FCFA)', 'Method', 'Note', 'Recorded by']];
-    visibleExpenses.forEach(e => rows.push([e.date, e.category, e.payee, e.amount, e.method, e.note, e.createdBy || '']));
+    const rows = [['Date', 'Category', 'Payee', 'Amount (FCFA)', 'Note', 'Recorded by']];
+    visibleExpenses.forEach(e => rows.push([e.date, e.category, e.payee, e.amount, e.note, e.createdBy || '']));
     rows.push([]); rows.push(['', '', 'TOTAL', total]);
     downloadCsv(`expenses-${today}.csv`, rows);
   };
@@ -5772,7 +5780,7 @@ const ExpensesView = () => {
       {can.expenses && (
         <div className="bg-white rounded-2xl p-5 border border-stone-200/80 mb-5">
           <h3 className="font-serif text-lg text-stone-900 mb-4" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>Record an expense</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <div><label className="block text-[11px] text-stone-500 mb-1">Date</label>
               <input type="date" value={form.date} max={today} onChange={set('date')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
             <div><label className="block text-[11px] text-stone-500 mb-1">Category</label>
@@ -5780,13 +5788,23 @@ const ExpensesView = () => {
                 {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select></div>
             <div><label className="block text-[11px] text-stone-500 mb-1">Payee</label>
-              <input value={form.payee} onChange={set('payee')} placeholder="Who paid" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
+              {payeeOther ? (
+                <input value={form.payee} onChange={set('payee')} placeholder="Who was paid" autoFocus
+                  onBlur={() => { if (!form.payee) setPayeeOther(false); }}
+                  className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" />
+              ) : (
+                <select value={form.payee} onChange={e => {
+                    if (e.target.value === '__other__') { setPayeeOther(true); setForm(f => ({ ...f, payee: '' })); }
+                    else setForm(f => ({ ...f, payee: e.target.value }));
+                  }} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
+                  <option value="">Select…</option>
+                  {payeeNames.map(name => <option key={name} value={name}>{name}</option>)}
+                  <option value="__other__">Other…</option>
+                </select>
+              )}
+            </div>
             <div><label className="block text-[11px] text-stone-500 mb-1">Amount (FCFA)</label>
               <input type="number" value={form.amount} onChange={set('amount')} placeholder="0" className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm" /></div>
-            <div><label className="block text-[11px] text-stone-500 mb-1">Method</label>
-              <select value={form.method} onChange={set('method')} className="w-full px-2.5 py-2 border border-stone-200 rounded-lg text-sm">
-                <option value="cash">Cash</option><option value="mobile">Mobile money</option><option value="bank">Bank</option>
-              </select></div>
             <div className="flex items-end"><button onClick={add} className="w-full px-3 py-2 rounded-lg bg-rose-900 text-white text-sm font-medium hover:bg-rose-800">Add</button></div>
           </div>
           <div className="mt-3"><label className="block text-[11px] text-stone-500 mb-1">Note (optional)</label>
@@ -5860,20 +5878,18 @@ const ExpensesView = () => {
                 <th className="text-left font-medium px-5 py-3">Date</th>
                 <th className="text-left font-medium px-5 py-3">Category</th>
                 <th className="text-left font-medium px-5 py-3">Payee</th>
-                <th className="text-left font-medium px-5 py-3">Method</th>
                 <th className="text-right font-medium px-5 py-3">Amount</th>
                 {can.expenses && <th className="px-5 py-3"></th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
               {visibleExpenses.length === 0 ? (
-                <tr><td colSpan={can.expenses ? 6 : 5} className="px-5 py-8 text-center text-stone-400">{loading ? 'Loading…' : 'No expenses recorded yet.'}</td></tr>
+                <tr><td colSpan={can.expenses ? 5 : 4} className="px-5 py-8 text-center text-stone-400">{loading ? 'Loading…' : 'No expenses recorded yet.'}</td></tr>
               ) : visibleExpenses.map(e => (
                 <tr key={e.id}>
                   <td className="px-5 py-3 text-stone-600">{e.date}</td>
                   <td className="px-5 py-3"><span className="text-xs px-2 py-1 rounded-full bg-stone-100 text-stone-700">{e.category}</span></td>
                   <td className="px-5 py-3 text-stone-700">{e.payee || '—'}{e.note ? <span className="block text-xs text-stone-400">{e.note}</span> : null}</td>
-                  <td className="px-5 py-3 text-stone-600 capitalize">{e.method}</td>
                   <td className="px-5 py-3 text-right font-medium text-stone-900">{fmt(e.amount)}</td>
                   {can.expenses && <td className="px-5 py-3 text-right"><button onClick={() => remove(e.id)} className="text-xs text-stone-400 hover:text-rose-600">Delete</button></td>}
                 </tr>
