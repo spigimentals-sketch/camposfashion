@@ -1933,7 +1933,6 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
               const outOfStock = p.stock <= 0;
               const lowStock = !outOfStock && p.stock < lowStockThreshold;
               const hasPacket = p.packetPrice > 0 && p.unitsPerPacket > 0;
-              const hasHalf = p.halfPacketPrice > 0 && p.unitsPerPacket > 0;
               const variants = variantsOf(p);
               return (
                 <div key={p.id} role="button" tabIndex={outOfStock ? -1 : 0}
@@ -1961,17 +1960,8 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
                   {variants.length > 1 && (
                     <div className="mt-1 text-[10px] text-stone-400">{variants.length} variants — tap to choose</div>
                   )}
-                  {(hasPacket || hasHalf) && (
-                    <div className={`mt-2 grid gap-1 ${hasPacket && hasHalf ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                      {hasHalf && (
-                        <button
-                          onClick={e => { e.stopPropagation(); addToCart(p, 'half'); }}
-                          disabled={p.stock < halfPackUnits(p)}
-                          className="flex items-center justify-center gap-1 px-2 py-1.5 bg-amber-50 text-amber-800 text-[11px] font-medium rounded-lg hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <Package size={11} /> ½ pack — {fmt(p.halfPacketPrice)}
-                        </button>
-                      )}
+                  {hasPacket && (
+                    <div className="mt-2 grid grid-cols-1 gap-1">
                       {hasPacket && (
                         <button
                           onClick={e => { e.stopPropagation(); addToCart(p, 'packet'); }}
@@ -2514,7 +2504,7 @@ const ProductsPanel = () => {
   const [deleting, setDeleting] = useState(false);
   const [editingCost, setEditingCost] = useState(null); // { id, value }
   const [editingPrice, setEditingPrice] = useState(null); // { id, value }
-  const [editingPacket, setEditingPacket] = useState(null); // { id, price, units, half }
+  const [editingPacket, setEditingPacket] = useState(null); // { id, price, units }
   const filtered = products.filter(p => {
     if (filter === 'low' && p.stock >= lowStockThreshold) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false;
@@ -2586,14 +2576,13 @@ const ProductsPanel = () => {
       patch('products', list => list.map(x => x.id === p.id ? updated : x));
     } catch (e) { toast(e.message || 'Failed to save price', 'error'); }
   };
-  const savePacket = async (p, rawPrice, rawUnits, rawHalf) => {
+  const savePacket = async (p, rawPrice, rawUnits) => {
     const newPacketPrice = parseFloat(rawPrice) || 0;
     const newUnitsPerPacket = parseInt(rawUnits) || 0;
-    const newHalfPacketPrice = parseFloat(rawHalf) || 0;
     setEditingPacket(null);
-    if (newPacketPrice === (p.packetPrice || 0) && newUnitsPerPacket === (p.unitsPerPacket || 0) && newHalfPacketPrice === (p.halfPacketPrice || 0)) return;
+    if (newPacketPrice === (p.packetPrice || 0) && newUnitsPerPacket === (p.unitsPerPacket || 0)) return;
     try {
-      const updated = await api.updateProduct(p.id, { ...p, packetPrice: newPacketPrice, unitsPerPacket: newUnitsPerPacket, halfPacketPrice: newHalfPacketPrice });
+      const updated = await api.updateProduct(p.id, { ...p, packetPrice: newPacketPrice, unitsPerPacket: newUnitsPerPacket });
       patch('products', list => list.map(x => x.id === p.id ? updated : x));
     } catch (e) { toast(e.message || 'Failed to save packet price', 'error'); }
   };
@@ -2818,7 +2807,7 @@ const ProductsPanel = () => {
                             value={editingPacket.price}
                             onChange={e => setEditingPacket(v => ({ ...v, price: e.target.value }))}
                             onKeyDown={e => {
-                              if (e.key === 'Enter') savePacket(p, editingPacket.price, editingPacket.units, editingPacket.half);
+                              if (e.key === 'Enter') savePacket(p, editingPacket.price, editingPacket.units);
                               if (e.key === 'Escape') setEditingPacket(null);
                             }}
                             placeholder="Price"
@@ -2830,44 +2819,29 @@ const ProductsPanel = () => {
                             value={editingPacket.units}
                             onChange={e => setEditingPacket(v => ({ ...v, units: e.target.value }))}
                             onKeyDown={e => {
-                              if (e.key === 'Enter') savePacket(p, editingPacket.price, editingPacket.units, editingPacket.half);
+                              if (e.key === 'Enter') savePacket(p, editingPacket.price, editingPacket.units);
                               if (e.key === 'Escape') setEditingPacket(null);
                             }}
                             placeholder="Units"
                             className="w-12 px-1.5 py-1 text-sm border border-sky-400 rounded focus:outline-none focus:ring-1 focus:ring-sky-500 bg-sky-50"
                           />
-                          <button onClick={() => savePacket(p, editingPacket.price, editingPacket.units, editingPacket.half)} className="text-rose-600 hover:text-rose-800" title="Save">
+                          <button onClick={() => savePacket(p, editingPacket.price, editingPacket.units)} className="text-rose-600 hover:text-rose-800" title="Save">
                             <CheckCircle2 size={15} />
                           </button>
                           <button onClick={() => setEditingPacket(null)} className="text-stone-400 hover:text-rose-600" title="Cancel">
                             <X size={15} />
                           </button>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-stone-400 text-[10px]">½ pack</span>
-                          <input
-                            type="number"
-                            value={editingPacket.half}
-                            onChange={e => setEditingPacket(v => ({ ...v, half: e.target.value }))}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') savePacket(p, editingPacket.price, editingPacket.units, editingPacket.half);
-                              if (e.key === 'Escape') setEditingPacket(null);
-                            }}
-                            placeholder="Half price"
-                            className="w-20 px-1.5 py-1 text-sm border border-amber-400 rounded focus:outline-none focus:ring-1 focus:ring-amber-500 bg-amber-50"
-                          />
-                        </div>
                       </div>
                     ) : (
                       <button
-                        onClick={() => can.editInventory && setEditingPacket({ id: p.id, price: p.packetPrice || 0, units: p.unitsPerPacket || 0, half: p.halfPacketPrice || 0 })}
+                        onClick={() => can.editInventory && setEditingPacket({ id: p.id, price: p.packetPrice || 0, units: p.unitsPerPacket || 0 })}
                         className={`text-sm text-stone-600 ${can.editInventory ? 'hover:text-sky-700 hover:underline cursor-pointer' : 'cursor-default'}`}
-                        title={can.editInventory ? 'Click to edit packet price / size / half-packet price' : undefined}
+                        title={can.editInventory ? 'Click to edit packet price / size' : undefined}
                       >
                         {p.packetPrice > 0 && p.unitsPerPacket > 0
                           ? <>{fmt(p.packetPrice)} <span className="text-stone-400 text-xs">/ {p.unitsPerPacket}</span></>
                           : <span className="text-stone-300 text-xs">— set packet</span>}
-                        {p.halfPacketPrice > 0 && <div className="text-xs text-amber-700">½ {fmt(p.halfPacketPrice)}</div>}
                       </button>
                     )}
                   </td>
@@ -3010,7 +2984,7 @@ const SupplierLedgerModal = ({ supplier, open, onClose }) => {
           </div>
           <div>
             <label className="text-xs text-stone-500 mb-1 block">Note (optional)</label>
-            <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. school books delivery"
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. new stock delivery"
               className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-rose-600 bg-white" />
           </div>
           <div className="flex gap-2">

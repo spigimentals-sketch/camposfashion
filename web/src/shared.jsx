@@ -815,17 +815,13 @@ export function ProductForm({ open, onClose, initial }) {
 
       {/* Optional packet pricing — lets this product also be sold as a fixed-size
           packet (e.g. a case of 6) at its own price, alongside the unit price above.
-          Half-packet price is a separate, independently-set price for selling half
-          that packet (e.g. a case of 6 sold as 3) — not just packetPrice / 2, since
-          the actual amount charged for half often isn't an exact half. Leaving a
-          field at 0 means that option isn't offered. */}
+          Leaving it at 0 means that option isn't offered. */}
       <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4 space-y-3">
         <div className="text-xs font-semibold text-stone-600 uppercase tracking-wider">Packet pricing (optional)</div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Packet price (FCFA)"><Input type="number" value={form.packetPrice || ''} onChange={set('packetPrice')} placeholder="e.g. 2 800" /></Field>
           <Field label="Units per packet"><Input type="number" value={form.unitsPerPacket || ''} onChange={set('unitsPerPacket')} placeholder="e.g. 6" /></Field>
         </div>
-        <Field label="Half-packet price (FCFA)"><Input type="number" value={form.halfPacketPrice || ''} onChange={set('halfPacketPrice')} placeholder="e.g. 1 500" /></Field>
       </div>
 
       {/* Bulk purchase calculator */}
@@ -837,7 +833,7 @@ export function ProductForm({ open, onClose, initial }) {
             <Input type="number" value={bulkTotal} onChange={e => setBulkTotal(e.target.value)} placeholder="e.g. 45 000" />
           </div>
           <div>
-            <label className="block text-xs text-stone-500 mb-1">Books per carton</label>
+            <label className="block text-xs text-stone-500 mb-1">Units per carton</label>
             <Input type="number" value={bulkQty} onChange={e => setBulkQty(e.target.value)} placeholder="e.g. 30" />
           </div>
         </div>
