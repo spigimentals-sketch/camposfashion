@@ -23,8 +23,8 @@ import {
   Clock, UserCircle2, Printer, Wallet, Truck, ClipboardList,
   ArrowDownLeft, ArrowUpLeft, RefreshCw, Languages, Phone, Mail,
   Globe, Building, Hash, Percent, ShieldCheck, BellRing,
-  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Menu, Camera, Monitor, Home,
-  PanelLeftClose, PanelLeftOpen, MessageCircle, ArrowUpDown,
+  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Camera, Monitor, Home,
+  MessageCircle, ArrowUpDown,
   Shirt, Layers, SquareStack, Medal, Shapes, Columns,
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -572,96 +572,6 @@ export const Logo = ({ size = 'md', subtitle = 'Point of Sale', hideTextClass = 
   );
 };
 
-const Sidebar = ({ view, setView, mobileNav, closeNav, collapsed, onToggleCollapse }) => {
-  const { t } = useT();
-  const { role, can } = useRole();
-  const { toast } = useToast();
-  const { user, logout: authLogout } = useAuth();
-  const logout = () => {
-    if (window.confirm('Sign out of Riskyc Fashion?')) { authLogout(); toast('Signed out', 'info'); }
-  };
-  const allNav = [
-    { id: 'home', label: t('home') || 'Home', icon: Home },
-    { id: 'pos', label: t('checkout'), icon: ShoppingCart },
-    { id: 'dashboard', label: t('dashboard'), icon: BarChart3 },
-    { id: 'inventory', label: t('inventory'), icon: Package },
-    { id: 'customers', label: t('customers'), icon: Users },
-    { id: 'reports', label: t('reports'), icon: FileText },
-    { id: 'expenses', label: t('expenses') || 'Expenses', icon: Receipt },
-    { id: 'manualSale', label: t('manualSale') || 'Record Sale', icon: ClipboardList },
-    { id: 'shifts', label: t('shifts') || 'Shifts', icon: Clock },
-  ];
-  // Shifts is for the fixed POS terminal only — not visible (let alone
-  // reachable) from a phone or tablet, same device check clock-in itself uses.
-  const onHandheld = isHandheldUA(navigator.userAgent);
-  const nav = allNav.filter(item => can[item.id] && (item.id !== 'shifts' || !onHandheld));
-  // Collapsing is a desktop-only convenience (more room for the actual work
-  // area) — mobile always uses the full-width slide-over triggered by the
-  // hamburger button, regardless of this state.
-  return (
-    <aside className={`${collapsed ? 'lg:w-[76px]' : 'lg:w-60'} w-60 bg-white border-r border-stone-200/80 flex flex-col h-full flex-shrink-0 z-40 transition-[width] duration-200 max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:shadow-2xl max-lg:transition-transform ${mobileNav ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}`}>
-      <div className={`border-b border-stone-200/80 flex items-center justify-between px-5 py-5 ${collapsed ? 'lg:justify-center lg:px-3' : ''}`}>
-        <Logo hideTextClass={collapsed ? 'lg:hidden' : ''} />
-        <button onClick={closeNav} className="lg:hidden p-1.5 rounded-md hover:bg-stone-100 text-stone-500"><X size={18} /></button>
-      </div>
-      <div className="hidden lg:flex justify-end px-3 pt-2">
-        <button onClick={onToggleCollapse} title={collapsed ? 'Expand menu' : 'Collapse menu'}
-          className="p-1.5 rounded-md hover:bg-stone-100 text-stone-400 hover:text-stone-600">
-          {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-        </button>
-      </div>
-      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        {nav.map(item => {
-          const Icon = item.icon;
-          const active = view === item.id;
-          return (
-            <button key={item.id} onClick={() => setView(item.id)} title={collapsed ? item.label : undefined}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${collapsed ? 'lg:justify-center' : ''} ${
-                active ? 'bg-rose-900 text-white shadow-sm shadow-rose-900/20' : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
-              }`}>
-              <Icon size={17} strokeWidth={active ? 2.2 : 1.8} className="flex-shrink-0" />
-              <span className={`font-medium ${collapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
-              {active && <ChevronRight size={14} className={`ml-auto ${collapsed ? 'lg:hidden' : ''}`} />}
-            </button>
-          );
-        })}
-      </nav>
-      <div className="p-3 border-t border-stone-200/80 space-y-0.5">
-        {can.settings && <button onClick={() => setView('settings')} title={collapsed ? t('settings') : undefined}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${collapsed ? 'lg:justify-center' : ''} ${
-            view === 'settings' ? 'bg-rose-900 text-white' : 'text-stone-600 hover:bg-stone-100'
-          }`}>
-          <Settings size={17} strokeWidth={view === 'settings' ? 2.2 : 1.8} className="flex-shrink-0" />
-          <span className={`font-medium ${collapsed ? 'lg:hidden' : ''}`}>{t('settings')}</span>
-        </button>}
-        <button onClick={() => toast('Help: support@riskycfashion.cm · +237 6 77 00 00 00', 'info')} title={collapsed ? t('help') : undefined}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-stone-600 hover:bg-stone-100 ${collapsed ? 'lg:justify-center' : ''}`}>
-          <HelpCircle size={17} strokeWidth={1.8} className="flex-shrink-0" /><span className={collapsed ? 'lg:hidden' : ''}>{t('help')}</span>
-        </button>
-        {can.admin && (
-          <button onClick={() => { if (window.confirm("Switch to a different business account on this device? This only affects this device — staff on other tills keep working normally. You'll need to sign back in here (shop, then your PIN) afterward.")) switchShop(); }}
-            title={collapsed ? 'Switch business account' : undefined}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-stone-600 hover:bg-stone-100 ${collapsed ? 'lg:justify-center' : ''}`}>
-            <Building2 size={17} strokeWidth={1.8} className="flex-shrink-0" /><span className={collapsed ? 'lg:hidden' : ''}>Switch business account</span>
-          </button>
-        )}
-      </div>
-      <div className="p-3 border-t border-stone-200/80">
-        <div className={`flex items-center gap-3 px-2 py-2 ${collapsed ? 'lg:justify-center' : ''}`}>
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-sm font-semibold shadow-sm flex-shrink-0">{(user?.name || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</div>
-          <div className={`flex-1 min-w-0 ${collapsed ? 'lg:hidden' : ''}`}>
-            <div className="text-sm font-medium text-stone-900 truncate">{user?.name || 'User'}</div>
-            <div className="text-[11px] text-stone-500 truncate capitalize">{user?.role || role} · {user?.store || ''}</div>
-          </div>
-          <button onClick={logout} title="Sign out" className={`p-1.5 rounded-md hover:bg-stone-100 flex-shrink-0 ${collapsed ? 'lg:hidden' : ''}`}>
-            <LogOut size={15} className="text-stone-400" />
-          </button>
-        </div>
-      </div>
-    </aside>
-  );
-};
-
 const LangToggle = () => {
   const { lang, setLang } = useT();
   return (
@@ -678,18 +588,32 @@ const LangToggle = () => {
   );
 };
 
-const TopBar = ({ title, subtitle, children, onMenu }) => {
-  const { lang } = useT();
+// There is no sidebar — this is now the only persistent nav surface. The
+// Home button (only shown once you've left Home) is how every other screen
+// gets back to the button hub; the account menu on the right replaces what
+// used to live in the sidebar's footer (settings/help/switch account/sign out).
+const TopBar = ({ title, subtitle, children, onHome, onSettings, showHome }) => {
+  const { t, lang } = useT();
   const { products, online, pendingSyncCount, dismissPendingSync, settings } = useData();
   const { stores, currentStoreId, setCurrentStoreId, multiStore } = useStore();
+  const { can } = useRole();
+  const { user, logout: authLogout } = useAuth();
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [storeMenuOpen, setStoreMenuOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
   const lowStock = (products || []).filter(p => p.stock < lowStockThreshold);
+  const logout = () => {
+    if (window.confirm('Sign out of Riskyc Fashion?')) { authLogout(); toast('Signed out', 'info'); }
+  };
   return (
     <div className="flex items-center justify-between px-4 sm:px-5 lg:px-7 py-4 bg-white/70 backdrop-blur border-b border-stone-200/80 flex-shrink-0">
       <div className="flex items-center gap-3 min-w-0">
-        <button onClick={onMenu} className="lg:hidden p-2 -ml-1 rounded-lg hover:bg-stone-100 text-stone-700 flex-shrink-0"><Menu size={20} /></button>
+        {showHome && (
+          <button onClick={onHome} title={t('home') || 'Home'}
+            className="p-2 -ml-1 rounded-lg hover:bg-stone-100 text-stone-700 flex-shrink-0"><Home size={20} /></button>
+        )}
         <div className="min-w-0">
           <h1 className="font-serif text-xl md:text-2xl text-stone-900 leading-tight truncate" style={{ fontFamily: "'Fraunces', serif", fontWeight: 500 }}>{title}</h1>
           {subtitle && <p className="text-xs text-stone-500 mt-0.5 truncate">{subtitle}</p>}
@@ -762,6 +686,48 @@ const TopBar = ({ title, subtitle, children, onMenu }) => {
         <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-xs font-medium whitespace-nowrap">
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${online ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'}`} />
           {online ? 'Online' : 'Offline'}
+        </div>
+
+        {/* Account menu — replaces what used to live in the sidebar's footer:
+            who's signed in, Settings, Help, Switch account, Sign out. */}
+        <div className="relative">
+          <button onClick={() => setAccountOpen(o => !o)}
+            className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white text-sm font-semibold shadow-sm flex-shrink-0">
+            {(user?.name || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+          </button>
+          {accountOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setAccountOpen(false)} />
+              <div className="absolute right-0 mt-2 w-60 bg-white border border-stone-200 rounded-xl shadow-lg z-50 overflow-hidden">
+                <div className="px-4 py-3 border-b border-stone-100">
+                  <div className="text-sm font-medium text-stone-900 truncate">{user?.name || 'User'}</div>
+                  <div className="text-[11px] text-stone-500 truncate capitalize">{user?.role || ''}</div>
+                </div>
+                <div className="p-1.5">
+                  {can.settings && (
+                    <button onClick={() => { setAccountOpen(false); onSettings(); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-stone-600 hover:bg-stone-100">
+                      <Settings size={15} className="flex-shrink-0" /> {t('settings')}
+                    </button>
+                  )}
+                  <button onClick={() => { setAccountOpen(false); toast('Help: support@riskycfashion.cm · +237 6 77 00 00 00', 'info'); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-stone-600 hover:bg-stone-100">
+                    <HelpCircle size={15} className="flex-shrink-0" /> {t('help')}
+                  </button>
+                  {can.admin && (
+                    <button onClick={() => { setAccountOpen(false); if (window.confirm("Switch to a different business account on this device? This only affects this device — staff on other tills keep working normally. You'll need to sign back in here (shop, then your PIN) afterward.")) switchShop(); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-stone-600 hover:bg-stone-100">
+                      <Building2 size={15} className="flex-shrink-0" /> Switch business account
+                    </button>
+                  )}
+                  <button onClick={() => { setAccountOpen(false); logout(); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-rose-700 hover:bg-rose-50">
+                    <LogOut size={15} className="flex-shrink-0" /> Sign out
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1068,43 +1034,41 @@ const ScanModal = ({
 };
 
 // ============ HOME ============
-// The first thing anyone sees after logging in — a fast visual way into
-// Checkout, either straight in or pre-filtered to a category. Doesn't read
-// or write anything; everything here is just navigation.
-const CATEGORY_STYLE = {
-  sets: { gradient: 'from-violet-500 to-purple-700', icon: SquareStack },
-  jerseys: { gradient: 'from-emerald-500 to-teal-700', icon: Medal },
-  trousers: { gradient: 'from-sky-400 to-blue-600', icon: Layers },
-  pullovers: { gradient: 'from-orange-400 to-amber-600', icon: Shirt },
-  shirts: { gradient: 'from-cyan-500 to-sky-700', icon: Shapes },
-  shorts: { gradient: 'from-lime-400 to-green-600', icon: Columns },
-  tshirts: { gradient: 'from-rose-400 to-pink-600', icon: Shirt },
-  others: { gradient: 'from-stone-400 to-stone-600', icon: Package },
+// The first thing anyone sees after logging in — now the app's only nav
+// hub, since there is no sidebar. Each button is a section a Sidebar item
+// used to link to; permissions/handheld filtering mirror what Sidebar used
+// to do. TopBar's Home button is how you get back here from any section.
+const NAV_STYLE = {
+  pos:        { gradient: 'from-rose-500 to-rose-800',   icon: ShoppingCart },
+  dashboard:  { gradient: 'from-violet-500 to-purple-700', icon: BarChart3 },
+  inventory:  { gradient: 'from-emerald-500 to-teal-700', icon: Package },
+  customers:  { gradient: 'from-sky-400 to-blue-600',     icon: Users },
+  reports:    { gradient: 'from-amber-400 to-orange-600', icon: FileText },
+  expenses:   { gradient: 'from-orange-400 to-red-600',   icon: Receipt },
+  manualSale: { gradient: 'from-teal-400 to-cyan-700',    icon: ClipboardList },
+  shifts:     { gradient: 'from-slate-500 to-slate-700',  icon: Clock },
+  settings:   { gradient: 'from-stone-600 to-stone-800',  icon: Settings },
 };
 
-const HomeView = ({ onCheckout, onSelectCategory }) => {
+const HomeView = ({ onNavigate }) => {
   const { t } = useT();
   const { user } = useAuth();
-  const { online, products: liveProducts } = useData();
-  const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
-  const cats = useCategoryList();
+  const { can } = useRole();
 
-  // Reuses the same sales-by-category breakdown the Dashboard's pie chart is
-  // built from. /reports/sales caps "days" at 90 server-side, so this is
-  // each category's share of the last 90 days, not literally all-time.
-  const [report, setReport] = useState(null);
-  useEffect(() => { api.salesReport(90).then(setReport).catch(() => {}); }, []);
-  const totalSales = (report?.byCategory || []).reduce((s, c) => s + c.sales, 0);
-  const pctFor = (catId) => {
-    if (!totalSales) return 0;
-    const entry = report?.byCategory?.find(c => c.category === catId);
-    return entry ? Math.round((entry.sales / totalSales) * 100) : 0;
-  };
-
-  const sampleFor = (catId) => {
-    const inCat = products.filter(p => p.category === catId);
-    return inCat.find(p => p.image) || inCat[0] || null;
-  };
+  // Same section list (and same permission/handheld filtering) Sidebar used
+  // to apply — this is now the only place that list is offered.
+  const onHandheld = isHandheldUA(navigator.userAgent);
+  const sections = [
+    { id: 'pos', label: t('checkout') },
+    { id: 'dashboard', label: t('dashboard') },
+    { id: 'inventory', label: t('inventory') },
+    { id: 'customers', label: t('customers') },
+    { id: 'reports', label: t('reports') },
+    { id: 'expenses', label: t('expenses') || 'Expenses' },
+    { id: 'manualSale', label: t('manualSale') || 'Record Sale' },
+    { id: 'shifts', label: t('shifts') || 'Shifts' },
+    { id: 'settings', label: t('settings') },
+  ].filter(item => can[item.id] && (item.id !== 'shifts' || !onHandheld));
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -1123,35 +1087,19 @@ const HomeView = ({ onCheckout, onSelectCategory }) => {
           </h1>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-10">
-          {cats.map(cat => {
-            const style = CATEGORY_STYLE[cat.id] || { gradient: 'from-stone-400 to-stone-600', icon: Package };
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          {sections.map(item => {
+            const style = NAV_STYLE[item.id] || { gradient: 'from-stone-400 to-stone-600', icon: Package };
             const Icon = style.icon;
-            const sample = sampleFor(cat.id);
-            const pct = pctFor(cat.id);
             return (
-              <button key={cat.id} onClick={() => onSelectCategory(cat.id)}
+              <button key={item.id} onClick={() => onNavigate(item.id)}
                 className={`relative aspect-square rounded-3xl bg-gradient-to-br ${style.gradient} text-white overflow-hidden shadow-lg hover:shadow-2xl hover:-translate-y-1 transition-all p-5 flex flex-col items-center justify-center text-center gap-2`}>
-                {sample?.image ? (
-                  <img src={imageUrl(sample.image)} alt="" className="absolute inset-0 w-full h-full object-cover opacity-35" />
-                ) : (
-                  <div className="absolute -right-3 -bottom-5 text-8xl opacity-25 select-none">{sample?.emoji || '🛒'}</div>
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
-                <div className="absolute top-3 right-3 z-10 px-2 py-0.5 rounded-full bg-white/25 backdrop-blur-sm text-[11px] font-semibold drop-shadow">
-                  {pct}% {t('of_sales') || 'of sales'}
-                </div>
-                <Icon size={26} className="relative z-10 drop-shadow" />
-                <div className="relative z-10 font-semibold text-xl leading-tight drop-shadow text-center">{cat.label}</div>
+                <Icon size={30} className="relative z-10 drop-shadow" />
+                <div className="relative z-10 font-semibold text-xl leading-tight drop-shadow text-center">{item.label}</div>
               </button>
             );
           })}
         </div>
-
-        <button onClick={onCheckout}
-          className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-rose-700 to-rose-900 text-white rounded-2xl font-semibold text-lg hover:shadow-xl hover:shadow-rose-900/25 transition-all flex items-center justify-center gap-3">
-          <ShoppingCart size={22} /> {t('go_checkout')}
-        </button>
       </div>
     </div>
   );
@@ -6139,23 +6087,10 @@ function DialloPOSShell({ titles }) {
   const firstView = (c) => ['home', 'pos', 'dashboard', 'inventory', 'reports', 'expenses', 'customers', 'shifts']
     .find(k => c[k] && (k !== 'shifts' || !onHandheld)) || (onHandheld ? 'pos' : 'shifts');
   const [view, setView] = useState(() => firstView(can));
-  const [mobileNav, setMobileNav] = useState(false);
-  // Desktop-only icon-rail mode for the sidebar — remembered across reloads.
-  const [collapsed, setCollapsed] = useState(() => {
-    try { return localStorage.getItem('diallo_sidebar_collapsed') === '1'; } catch { return false; }
-  });
-  const toggleCollapsed = () => setCollapsed(c => {
-    try { localStorage.setItem('diallo_sidebar_collapsed', !c ? '1' : '0'); } catch {}
-    return !c;
-  });
-  // Set when a category box on the Home page is clicked, so Checkout opens
-  // already filtered to it — cleared as soon as Checkout reads it, so
-  // navigating to Checkout any other way still starts unfiltered.
-  const [pendingCategory, setPendingCategory] = useState(null);
   // If the current role loses access to the active view (or it's Shifts on a
   // handheld device), fall back to its first allowed view.
   React.useEffect(() => { if (!can[view] || (view === 'shifts' && onHandheld)) setView(firstView(can)); }, [can, view]);
-  const go = (v) => { setView(v); setMobileNav(false); };
+  const go = (v) => setView(v);
 
   const guarded = (key, label, El) => can[key] ? <El /> : <AccessDenied feature={label} />;
 
@@ -6188,20 +6123,13 @@ function DialloPOSShell({ titles }) {
       <DiscountApprovalWatcher />
       <ReturnApprovalWatcher />
 
-      {/* Mobile backdrop when the sidebar is open */}
-      {mobileNav && <div onClick={() => setMobileNav(false)} className="fixed inset-0 bg-stone-900/40 z-30 lg:hidden" />}
-
-      <Sidebar view={view} setView={go} mobileNav={mobileNav} closeNav={() => setMobileNav(false)} collapsed={collapsed} onToggleCollapse={toggleCollapsed} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar title={titles[view].title} subtitle={subtitleFor(view)} onMenu={() => setMobileNav(true)} />
+        <TopBar title={titles[view].title} subtitle={subtitleFor(view)} onHome={() => go('home')} onSettings={() => go('settings')} showHome={view !== 'home'} />
         {view === 'home' && (can.home ? (
-          <HomeView
-            onCheckout={() => go('pos')}
-            onSelectCategory={(cat) => { setPendingCategory(cat); go('pos'); }}
-          />
+          <HomeView onNavigate={go} />
         ) : <AccessDenied feature="Home" />)}
         {view === 'pos' && (can.pos ? (
-          <POSView initialCategory={pendingCategory} onCategoryConsumed={() => setPendingCategory(null)} />
+          <POSView />
         ) : <AccessDenied feature="Checkout" />)}
         {view === 'dashboard' && guarded('dashboard', 'Dashboard & Financials', DashboardView)}
         {view === 'inventory' && guarded('inventory', 'Inventory', InventoryView)}
