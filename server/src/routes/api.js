@@ -180,27 +180,33 @@ const withVariants = (products, storeId = null) => {
   return products;
 };
 
-// Replaces one variant's store_stock rows from the `stockByStore` array the
-// client sent (same shape GET returns: [{storeId, stock}, ...]) — any shop
-// not mentioned gets 0. Delete-then-reinsert is safe here: nothing else
-// references a store_stock row by id, so there's no stable-id concern like
-// there is for variants (which a cart may already reference).
+// Replaces one variant's store_stock rows. Add/Edit Product only ever
+// edits a flat `stock` number per variant — there is no UI anywhere that
+// edits stockByStore (the per-store breakdown) itself. But GET /products
+// echoes stockByStore back on every variant, and the form's local state
+// carries that echoed array through untouched when editing an existing
+// product. So preferring stockByStore whenever it's present (the original,
+// more "faithful" reading) actually did the wrong thing: it kept
+// overwriting the new flat `stock` value with the stale breakdown from
+// before the edit, on every single save. Concretely, an edit changing
+// stock 25 -> 40 would still write 25, because the untouched stockByStore
+// array still said 25 — which is exactly the "stock edits don't stick"
+// bug this fixes.
 //
-// Add/Edit Product never actually sends stockByStore — it only has a flat
-// `stock` number per variant (multi-store distribution is a separate,
-// per-store adjustment flow). Without this fallback, saving a product
-// through that form silently zeroed every store's stock: stockByStore came
-// through as undefined, so every store's share resolved to 0 and got
-// written over whatever was already there. When it's missing, put the
-// whole flat `stock` amount on this shop's first store instead — correct
-// for the common single-store case, and preserves the total for a
-// multi-store shop rather than deleting it.
+// The flat number is the only thing any UI actually intends to change, so
+// it always wins when present, going entirely onto this shop's first
+// store. stockByStore only applies as a fallback when the client sends no
+// flat stock at all (nothing currently does that, but the shape is kept
+// for a future proper multi-store editor).
 const saveStoreStock = (variantId, stockByStore, flatStock) => {
   const stores = db.prepare('SELECT id FROM stores ORDER BY id').all();
+  const hasFlat = flatStock !== undefined && flatStock !== null && flatStock !== '';
   const hasBreakdown = Array.isArray(stockByStore) && stockByStore.length > 0;
-  const byStore = hasBreakdown
-    ? new Map(stockByStore.map(s => [Number(s.storeId), Number(s.stock) || 0]))
-    : new Map(stores.length ? [[stores[0].id, Number(flatStock) || 0]] : []);
+  const byStore = hasFlat
+    ? new Map(stores.length ? [[stores[0].id, Number(flatStock) || 0]] : [])
+    : hasBreakdown
+      ? new Map(stockByStore.map(s => [Number(s.storeId), Number(s.stock) || 0]))
+      : new Map();
   db.prepare('DELETE FROM store_stock WHERE variantId=?').run(variantId);
   const ins = db.prepare('INSERT INTO store_stock (storeId, variantId, stock) VALUES (?, ?, ?)');
   stores.forEach(st => ins.run(st.id, variantId, byStore.get(st.id) || 0));
