@@ -5,8 +5,8 @@
 //  • Toasts, a generic Modal, simple form fields.
 //  • CSV export helper.
 //  • Entity forms (Product, Supplier, User, Purchase Order).
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { X, CheckCircle2, AlertTriangle, Info, ShieldCheck, Delete, UserCircle2, Camera, Trash2, Building2, Eye, EyeOff, Lock } from 'lucide-react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { X, CheckCircle2, AlertTriangle, Info, ShieldCheck, Delete, UserCircle2, Trash2, Building2, Eye, EyeOff, Lock } from 'lucide-react';
 import api, { imageUrl, setToken, getToken, getTenantToken, setTenantToken, getPendingMutations, queuePendingMutation, flushPendingMutations, clearAllPendingMutations } from './api.js';
 
 /* ---------------- CSV export ---------------- */
@@ -346,57 +346,6 @@ export function ProductForm({ open, onClose, initial }) {
     ? Math.round(Number(bulkTotal) / Number(bulkQty))
     : null;
 
-  // Camera capture state
-  const [showCamera, setShowCamera]   = useState(false);
-  const [snapPreview, setSnapPreview] = useState(null); // data URL of captured frame
-  const videoRef  = useRef(null);
-  const streamRef = useRef(null);
-
-  const stopStream = () => {
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    streamRef.current = null;
-  };
-  const closeCamera = () => { stopStream(); setShowCamera(false); setSnapPreview(null); };
-  const openCamera  = async () => {
-    setSnapPreview(null);
-    setShowCamera(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-      streamRef.current = stream;
-      // videoRef may not be mounted yet — wait one tick
-      setTimeout(() => { if (videoRef.current) videoRef.current.srcObject = stream; }, 0);
-    } catch (err) {
-      toast('Camera not available — ' + (err.message || 'permission denied'), 'error');
-      setShowCamera(false);
-    }
-  };
-  const snapPhoto = () => {
-    const v = videoRef.current;
-    if (!v) return;
-    const canvas = document.createElement('canvas');
-    canvas.width  = v.videoWidth  || 640;
-    canvas.height = v.videoHeight || 480;
-    canvas.getContext('2d').drawImage(v, 0, 0);
-    setSnapPreview(canvas.toDataURL('image/jpeg', 0.85));
-    stopStream();
-  };
-  const useSnappedPhoto = async () => {
-    if (!snapPreview) return;
-    setUploading(true);
-    try {
-      const { path } = await api.uploadImage('camera-snap.jpg', snapPreview);
-      setForm(f => ({ ...f, image: path }));
-      toast('Photo attached');
-      closeCamera();
-    } catch (err) {
-      toast(!err.status ? "Can't upload while offline — try again once connected" : err.message, 'error');
-    } finally {
-      setUploading(false);
-    }
-  };
-  // Always release the camera when the modal closes or the form is reset
-  useEffect(() => { if (!open) closeCamera(); }, [open]); // eslint-disable-line
-
   useEffect(() => {
     const f = initial || blank;
     setForm(f);
@@ -612,65 +561,33 @@ export function ProductForm({ open, onClose, initial }) {
         <PrimaryBtn onClick={save} disabled={uploading}>{uploading ? 'Uploading…' : 'Save'}</PrimaryBtn>
       </>}>
 
-      {/* Photo picker */}
+      {/* Photo: the preview box itself is the upload trigger (click anywhere
+          on it), rather than a separate button — one obvious click target
+          instead of two. No camera option; this shop always uses real
+          product photos taken elsewhere and uploaded. */}
       <Field label="Photo">
         <div className="flex items-center gap-3">
-          <div className="w-20 h-20 rounded-xl bg-stone-100 border border-stone-200 flex items-center justify-center overflow-hidden flex-shrink-0">
-            {preview
-              ? <img src={preview} alt="" className="w-full h-full object-cover" />
-              : <span className="text-3xl">{form.emoji || '📦'}</span>}
-          </div>
-          <div className="flex flex-col gap-2">
-            <label className="px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm font-medium cursor-pointer hover:bg-stone-50 inline-block">
-              {preview ? 'Change photo' : 'Upload photo'}
-              <input type="file" accept="image/*" className="hidden" onChange={onPickImage} />
-            </label>
-            <button type="button" onClick={showCamera ? closeCamera : openCamera}
-              className="px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm font-medium hover:bg-stone-50 flex items-center gap-1.5">
-              <Camera size={15} />{showCamera ? 'Close camera' : 'Take photo'}
-            </button>
-            {preview && (
-              <button type="button" onClick={() => setForm(f => ({ ...f, image: null }))}
-                className="text-xs text-stone-500 hover:text-rose-600 text-left">Remove photo</button>
-            )}
-          </div>
-        </div>
-
-        {/* Inline camera viewfinder */}
-        {showCamera && (
-          <div className="mt-3 rounded-xl overflow-hidden border border-stone-200 bg-black relative">
-            {!snapPreview ? (
+          <label
+            className="w-24 h-24 rounded-xl bg-stone-100 border-2 border-dashed border-stone-300 flex flex-col items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-rose-400 hover:bg-stone-50 transition-colors group relative"
+            title={preview ? 'Click to change photo' : 'Click to upload a photo'}
+          >
+            {preview ? (
               <>
-                <video ref={videoRef} autoPlay playsInline muted
-                  className="w-full max-h-64 object-cover block" />
-                <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-3">
-                  <button type="button" onClick={snapPhoto}
-                    className="px-5 py-2 bg-white rounded-full text-sm font-semibold shadow-lg hover:bg-stone-100 flex items-center gap-1.5">
-                    <Camera size={15} /> Snap
-                  </button>
-                  <button type="button" onClick={closeCamera}
-                    className="px-4 py-2 bg-stone-800/80 text-white rounded-full text-sm font-medium hover:bg-stone-700">
-                    Cancel
-                  </button>
+                <img src={preview} alt="" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                  <span className="opacity-0 group-hover:opacity-100 text-white text-[11px] font-medium transition-opacity">Change</span>
                 </div>
               </>
             ) : (
-              <>
-                <img src={snapPreview} alt="Captured" className="w-full max-h-64 object-cover block" />
-                <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-3">
-                  <button type="button" onClick={useSnappedPhoto} disabled={uploading}
-                    className="px-5 py-2 bg-rose-600 text-white rounded-full text-sm font-semibold shadow-lg hover:bg-rose-700 disabled:opacity-60">
-                    {uploading ? 'Uploading…' : 'Use photo'}
-                  </button>
-                  <button type="button" onClick={() => { setSnapPreview(null); openCamera(); }}
-                    className="px-4 py-2 bg-stone-800/80 text-white rounded-full text-sm font-medium hover:bg-stone-700">
-                    Retake
-                  </button>
-                </div>
-              </>
+              <span className="text-[11px] text-stone-400 font-medium px-2 text-center">Click to upload photo</span>
             )}
-          </div>
-        )}
+            <input type="file" accept="image/*" className="hidden" onChange={onPickImage} />
+          </label>
+          {preview && (
+            <button type="button" onClick={() => setForm(f => ({ ...f, image: null }))}
+              className="text-xs text-stone-500 hover:text-rose-600">Remove photo</button>
+          )}
+        </div>
       </Field>
 
       <Field label="Name"><Input value={form.name} onChange={set('name')} /></Field>
@@ -705,10 +622,46 @@ export function ProductForm({ open, onClose, initial }) {
           />
         )}
       </Field>
+
       <div className="grid grid-cols-2 gap-3">
         <Field label="Selling price (FCFA)"><Input type="number" value={form.price} onChange={set('price')} /></Field>
         <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
       </div>
+
+      {/* Bulk purchase calculator — a helper for filling in Cost price above,
+          so it sits right next to it rather than further down the form. */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+        <div className="text-xs font-semibold text-amber-800 uppercase tracking-wider">📦 Cost Calculator</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-stone-500 mb-1">Carton price (FCFA)</label>
+            <Input type="number" value={bulkTotal} onChange={e => setBulkTotal(e.target.value)} placeholder="e.g. 45 000" />
+          </div>
+          <div>
+            <label className="block text-xs text-stone-500 mb-1">Units per carton</label>
+            <Input type="number" value={bulkQty} onChange={e => setBulkQty(e.target.value)} placeholder="e.g. 30" />
+          </div>
+        </div>
+        {bulkUnitCost != null && (
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <div className="text-sm">
+              <span className="text-stone-500">Unit cost: </span>
+              <span className="font-semibold text-amber-900">{bulkUnitCost.toLocaleString('fr-FR')} FCFA</span>
+            </div>
+            <button type="button"
+              onClick={() => { setForm(f => ({ ...f, cost: bulkUnitCost })); setBulkTotal(''); setBulkQty(''); }}
+              className="px-4 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex-shrink-0">
+              Apply to cost
+            </button>
+          </div>
+        )}
+      </div>
+      {Number(form.price) > 0 && Number(form.cost) > 0 && (
+        <div className="-mt-1 mb-1 text-xs text-stone-500">
+          Margin: <span className="font-medium text-rose-700">{(Number(form.price) - Number(form.cost)).toLocaleString()} FCFA</span>
+          {' '}per unit ({Math.round(((Number(form.price) - Number(form.cost)) / Number(form.price)) * 100)}%)
+        </div>
+      )}
 
       {/* Variants: every style is sold as one or more size/color combos, each
           with its own SKU and stock count — price/cost above apply to all of
@@ -774,50 +727,6 @@ export function ProductForm({ open, onClose, initial }) {
         </Field>
       )}
 
-      {/* Optional packet pricing — lets this product also be sold as a fixed-size
-          packet (e.g. a case of 6) at its own price, alongside the unit price above.
-          Leaving it at 0 means that option isn't offered. */}
-      <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4 space-y-3">
-        <div className="text-xs font-semibold text-stone-600 uppercase tracking-wider">Packet pricing (optional)</div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Packet price (FCFA)"><Input type="number" value={form.packetPrice || ''} onChange={set('packetPrice')} placeholder="e.g. 2 800" /></Field>
-          <Field label="Units per packet"><Input type="number" value={form.unitsPerPacket || ''} onChange={set('unitsPerPacket')} placeholder="e.g. 6" /></Field>
-        </div>
-      </div>
-
-      {/* Bulk purchase calculator */}
-      <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
-        <div className="text-xs font-semibold text-amber-800 uppercase tracking-wider">📦 Cost Calculator</div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs text-stone-500 mb-1">Carton price (FCFA)</label>
-            <Input type="number" value={bulkTotal} onChange={e => setBulkTotal(e.target.value)} placeholder="e.g. 45 000" />
-          </div>
-          <div>
-            <label className="block text-xs text-stone-500 mb-1">Units per carton</label>
-            <Input type="number" value={bulkQty} onChange={e => setBulkQty(e.target.value)} placeholder="e.g. 30" />
-          </div>
-        </div>
-        {bulkUnitCost != null && (
-          <div className="flex items-center justify-between gap-3 pt-1">
-            <div className="text-sm">
-              <span className="text-stone-500">Unit cost: </span>
-              <span className="font-semibold text-amber-900">{bulkUnitCost.toLocaleString('fr-FR')} FCFA</span>
-            </div>
-            <button type="button"
-              onClick={() => { setForm(f => ({ ...f, cost: bulkUnitCost })); setBulkTotal(''); setBulkQty(''); }}
-              className="px-4 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex-shrink-0">
-              Apply to cost
-            </button>
-          </div>
-        )}
-      </div>
-      {Number(form.price) > 0 && Number(form.cost) > 0 && (
-        <div className="-mt-1 mb-1 text-xs text-stone-500">
-          Margin: <span className="font-medium text-rose-700">{(Number(form.price) - Number(form.cost)).toLocaleString()} FCFA</span>
-          {' '}per unit ({Math.round(((Number(form.price) - Number(form.cost)) / Number(form.price)) * 100)}%)
-        </div>
-      )}
       <Field label="Style SKU">
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2 items-center">
@@ -834,6 +743,18 @@ export function ProductForm({ open, onClose, initial }) {
           </label>
         </div>
       </Field>
+
+      {/* Optional packet pricing — lets this product also be sold as a fixed-size
+          packet (e.g. a case of 6) at its own price, alongside the unit price above.
+          Leaving it at 0 means that option isn't offered. Placed last: it's an
+          extra, less-common option, not part of the core flow of adding a product. */}
+      <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4 space-y-3">
+        <div className="text-xs font-semibold text-stone-600 uppercase tracking-wider">Packet pricing (optional)</div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Packet price (FCFA)"><Input type="number" value={form.packetPrice || ''} onChange={set('packetPrice')} placeholder="e.g. 2 800" /></Field>
+          <Field label="Units per packet"><Input type="number" value={form.unitsPerPacket || ''} onChange={set('unitsPerPacket')} placeholder="e.g. 6" /></Field>
+        </div>
+      </div>
     </Modal>
   );
 }
