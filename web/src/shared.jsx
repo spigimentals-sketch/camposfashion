@@ -327,18 +327,6 @@ const CATS = ['sets', 'jerseys', 'trousers', 'pullovers', 'shirts', 'shorts', 't
 // stocked (riskycfashion.com carries up to 4XL on several lines).
 export const QUICK_SIZES = ['One Size', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL'];
 
-// A curated set covering this shop's actual categories, so picking an icon
-// per product is a couple of clicks instead of having to type/paste an
-// emoji character by hand.
-const PRODUCT_EMOJIS = [
-  '📦', '🛍️', '🎁',
-  '👕', '👚', '👔', '🧥', '🥼', '👗', '👖', '🩳', '🩱', '🧦',
-  '👟', '👠', '👡', '👢', '🥾',
-  '👜', '🎒', '👛', '💼', '🧳',
-  '🧣', '🧤', '🎩', '👒', '🧢',
-  '⌚', '💍', '👓', '🕶️', '💄',
-  '✨', '🌸',
-];
 
 export function ProductForm({ open, onClose, initial }) {
   const { upsertProduct, patch, categories: liveCategories, upsertCategory, settings } = useData();
@@ -350,7 +338,6 @@ export function ProductForm({ open, onClose, initial }) {
   const [autoGenerateSku, setAutoGenerateSku] = useState(false);
   const [addingCat, setAddingCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   // Bulk purchase calculator
   const [bulkTotal, setBulkTotal] = useState('');
@@ -416,7 +403,6 @@ export function ProductForm({ open, onClose, initial }) {
     setAutoGenerateSku(false);
     setAddingCat(false);
     setNewCatName('');
-    setShowEmojiPicker(false);
   }, [initial, open]); // eslint-disable-line
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
   const categoryOptions = (liveCategories?.length ? liveCategories : CATS.map(c => ({ id: c, label: c })))
@@ -687,32 +673,7 @@ export function ProductForm({ open, onClose, initial }) {
         )}
       </Field>
 
-      <Field label="Name (EN)"><Input value={form.name} onChange={set('name')} /></Field>
-      <Field label="Name (FR)"><Input value={form.name_fr} onChange={set('name_fr')} /></Field>
-
-      <Field label="Icon (shown when there's no photo)">
-        <div className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-lg bg-stone-100 border border-stone-200 flex items-center justify-center text-xl flex-shrink-0">{form.emoji || '📦'}</div>
-          <Input value={form.emoji} onChange={set('emoji')} placeholder="Pick below, or type/paste any emoji" />
-          <button type="button" onClick={() => setShowEmojiPicker((v) => !v)}
-            className="px-3 py-2 rounded-lg border border-stone-200 text-xs font-medium text-stone-600 hover:bg-stone-50 flex-shrink-0 whitespace-nowrap">
-            {showEmojiPicker ? 'Hide' : 'Choose'}
-          </button>
-        </div>
-        {/* Collapsed by default — it's a couple dozen buttons that would
-            otherwise eat a third of the form's height for something most
-            edits never touch. Picking one closes it again automatically. */}
-        {showEmojiPicker && (
-          <div className="grid grid-cols-10 gap-1 p-2 mt-2 border border-stone-200 rounded-lg max-h-28 overflow-y-auto">
-            {PRODUCT_EMOJIS.map((em) => (
-              <button key={em} type="button" onClick={() => { setForm(f => ({ ...f, emoji: em })); setShowEmojiPicker(false); }}
-                className={`text-lg w-7 h-7 rounded-md flex items-center justify-center hover:bg-stone-100 ${form.emoji === em ? 'bg-rose-100 ring-2 ring-rose-500' : ''}`}>
-                {em}
-              </button>
-            ))}
-          </div>
-        )}
-      </Field>
+      <Field label="Name"><Input value={form.name} onChange={set('name')} /></Field>
 
       <Field label="Category">
         {addingCat ? (
