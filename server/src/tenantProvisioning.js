@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
 import { openTenantDatabase } from './db.js';
+import { closeTenantConnection } from './tenantDb.js';
 import { seedBlankTenant } from './seed.js';
 import { hashPin } from './auth.js';
 import { platformDb } from './platformDb.js';
@@ -66,4 +67,22 @@ export function provisionTenant({ slug, shopName, username, password, ownerName,
   ).run(slug, shopName, username, hash, salt, dbPath, 'active', now, now);
 
   return platformDb.prepare('SELECT id,slug,shopName,username,status,createdAt,updatedAt FROM tenants WHERE id=?').get(info.lastInsertRowid);
+}
+
+// Permanently removes a shop: its database file, its uploaded photos, and
+// its row in the platform's tenants table. Irreversible — there is no
+// backup step here, by design (a "soft delete" would just be status =
+// 'suspended', which already exists). Closes the cached connection first
+// (see tenantDb.js) so a stale open file handle can't keep the file alive
+// after fs.rmSync, or serve a request that lands in the middle of deleting.
+export function deleteTenant(id) {
+  const tenant = platformDb.prepare('SELECT * FROM tenants WHERE id=?').get(id);
+  if (!tenant) throw new ProvisioningError('Shop not found');
+
+  closeTenantConnection(tenant.slug);
+  fs.rmSync(path.dirname(tenant.dbPath), { recursive: true, force: true });
+  fs.rmSync(path.join(UPLOADS_ROOT, tenant.slug), { recursive: true, force: true });
+  platformDb.prepare('DELETE FROM tenants WHERE id=?').run(id);
+
+  return { id, slug: tenant.slug };
 }

@@ -171,6 +171,57 @@ function EditShopModal({ tenant, onClose, onSaved }) {
   );
 }
 
+// Unlike Suspend (reversible — just locks them out), this permanently wipes
+// the shop's database and uploaded photos. Typing the slug back — rather
+// than a plain window.confirm() — is the guard against a stray click on
+// real, paying-shop data; the server independently re-checks the same
+// value, so this modal isn't the only thing standing between a click and
+// data loss.
+function DeleteShopModal({ tenant, onClose, onDeleted }) {
+  const { toast } = useToast();
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => { setConfirmText(''); }, [tenant]);
+
+  const remove = async () => {
+    if (confirmText !== tenant.slug) return;
+    setDeleting(true);
+    try {
+      await adminApi.deleteTenant(tenant.id, confirmText);
+      toast(`"${tenant.shopName}" deleted permanently`);
+      onDeleted();
+      onClose();
+    } catch (e) {
+      toast(e.message || 'Could not delete shop', 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Modal open={!!tenant} onClose={onClose} title="Delete shop"
+      footer={<>
+        <GhostBtn onClick={onClose}>Cancel</GhostBtn>
+        <button onClick={remove} disabled={deleting || confirmText !== tenant?.slug}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-rose-700 text-white hover:bg-rose-800 disabled:opacity-40 disabled:cursor-not-allowed">
+          {deleting ? 'Deleting…' : 'Delete permanently'}
+        </button>
+      </>}>
+      <div className="space-y-3">
+        <p className="text-sm text-stone-600">
+          This permanently deletes <strong>{tenant?.shopName}</strong> — every product, sale, customer,
+          and uploaded photo. There is no backup and this cannot be undone. If you just want to lock
+          them out without losing their data, use <strong>Suspend</strong> instead.
+        </p>
+        <Field label={<>Type <span className="font-mono">{tenant?.slug}</span> to confirm</>}>
+          <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoFocus placeholder={tenant?.slug} />
+        </Field>
+      </div>
+    </Modal>
+  );
+}
+
 function AddAdminModal({ open, onClose, onCreated }) {
   const { toast } = useToast();
   const [username, setUsername] = useState('');
@@ -327,6 +378,7 @@ function AdminDashboard({ onLogout }) {
   const [tenants, setTenants] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
   const load = () => adminApi.getTenants().then(setTenants).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line
@@ -415,6 +467,10 @@ function AdminDashboard({ onLogout }) {
                             className={`text-xs font-medium ${t.status === 'active' ? 'text-rose-600 hover:text-rose-800' : 'text-emerald-700 hover:text-emerald-900'}`}>
                             {t.status === 'active' ? 'Suspend' : 'Reactivate'}
                           </button>
+                          <button onClick={() => setDeleting(t)} title="Delete permanently"
+                            className="text-stone-400 hover:text-rose-700 inline-flex items-center">
+                            <Trash2 size={13} />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -430,6 +486,7 @@ function AdminDashboard({ onLogout }) {
 
       <NewShopModal open={showNew} onClose={() => setShowNew(false)} onCreated={load} />
       <EditShopModal tenant={editing} onClose={() => setEditing(null)} onSaved={load} />
+      <DeleteShopModal tenant={deleting} onClose={() => setDeleting(null)} onDeleted={load} />
     </div>
   );
 }

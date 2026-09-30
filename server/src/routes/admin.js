@@ -8,7 +8,7 @@
 import { Router } from 'express';
 import { platformDb } from '../platformDb.js';
 import { verifyPin, hashPin, issuePlatformAdminToken, requirePlatformAdmin } from '../auth.js';
-import { provisionTenant, slugFor, ProvisioningError } from '../tenantProvisioning.js';
+import { provisionTenant, deleteTenant, slugFor, ProvisioningError } from '../tenantProvisioning.js';
 
 const r = Router();
 
@@ -91,6 +91,20 @@ r.put('/admin/tenants/:id/status', h((req, res) => {
   if (!tenant) return res.status(404).json({ error: 'Shop not found' });
   platformDb.prepare('UPDATE tenants SET status=?, updatedAt=? WHERE id=?').run(status, new Date().toISOString(), req.params.id);
   res.json({ id: tenant.id, status });
+}));
+
+// Permanently deletes a shop: its database, its uploaded photos, everything
+// — irreversible, unlike /status (which just locks them out but keeps their
+// data). Requires the caller to echo back the shop's own slug as `confirm`,
+// so this can't be triggered by a stray click the way a plain button could;
+// the UI makes the admin type the shop name to get that value.
+r.delete('/admin/tenants/:id', h((req, res) => {
+  const tenant = platformDb.prepare('SELECT id,slug,shopName FROM tenants WHERE id=?').get(req.params.id);
+  if (!tenant) return res.status(404).json({ error: 'Shop not found' });
+  const { confirm } = req.body || {};
+  if (confirm !== tenant.slug) return res.status(400).json({ error: 'Confirmation did not match — nothing was deleted' });
+  deleteTenant(tenant.id);
+  res.json({ ok: true });
 }));
 
 // ---- Other people who can sign into this panel ----

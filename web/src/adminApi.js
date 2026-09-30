@@ -45,6 +45,7 @@ export const adminApi = {
   createTenant: (data) => req('POST', '/admin/tenants', data),
   updateTenant: (id, data) => req('PUT', `/admin/tenants/${id}`, data),
   setTenantStatus: (id, status) => req('PUT', `/admin/tenants/${id}/status`, { status }),
+  deleteTenant: (id, confirmSlug) => req('DELETE', `/admin/tenants/${id}`, { confirm: confirmSlug }),
   // other people who can sign into this panel
   getAdmins: () => req('GET', '/admin/admins'),
   createAdmin: (username, password) => req('POST', '/admin/admins', { username, password }),
