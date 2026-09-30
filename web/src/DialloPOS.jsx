@@ -238,6 +238,26 @@ const LangContext = createContext({ lang: 'en', t: (k) => k, setLang: () => {} }
 const useT = () => useContext(LangContext);
 
 // ============ SHIFT CONTEXT ============
+// The work day is 7:30 AM to 6:00 PM = 10.5 expected hours. Shortfall is
+// computed against days actually clocked (never against a day off), and
+// nets across the whole period — going long on one day cancels out being
+// short on another — matching the "balance short hours with extra work"
+// policy rather than penalizing day by day.
+const EXPECTED_HOURS_PER_DAY = 10.5; // 07:30-18:00
+function summarizeHours(shiftsForSubject) {
+  const days = new Set();
+  let actualHours = 0;
+  shiftsForSubject.forEach(s => {
+    days.add((s.clockIn || '').slice(0, 10));
+    const end = s.clockOut ? new Date(s.clockOut) : new Date();
+    actualHours += (end - new Date(s.clockIn)) / 3600000;
+  });
+  const daysWorked = days.size;
+  const expectedHours = daysWorked * EXPECTED_HOURS_PER_DAY;
+  const hoursShort = Math.max(0, expectedHours - actualHours);
+  return { daysWorked, actualHours, expectedHours, hoursShort };
+}
+
 const DEFAULT_EMPLOYEES = [
   { id: 1, name: 'Mariama Ndiaye', role: 'Salesperson', initials: 'MN', color: 'from-amber-400 to-rose-500' },
   { id: 2, name: 'Awa Sow', role: 'Salesperson', initials: 'AS', color: 'from-sky-400 to-indigo-600' },
@@ -4369,9 +4389,12 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
     setSelected(sel);
   }, [open]); // eslint-disable-line
 
-  const hoursForUser = (userId) => (liveShifts || [])
-    .filter((s) => String(s.employeeId) === String(userId) && (s.clockIn || '').slice(0, 10) >= from && (s.clockIn || '').slice(0, 10) <= to)
-    .reduce((sum, s) => sum + ((s.clockOut ? new Date(s.clockOut) : new Date()) - new Date(s.clockIn)) / 3600000, 0);
+  // Self-service clock-ins (a logged-in user clocking themselves in/out)
+  // set shifts.userId, not employeeId — employeeId is only for the Staff
+  // Register's no-login roster (see subjectKey in ShiftsView). This modal
+  // only ever sends to `users`, so it must match on userId.
+  const summaryForUser = (userId) => summarizeHours((liveShifts || [])
+    .filter((s) => String(s.userId) === String(userId) && (s.clockIn || '').slice(0, 10) >= from && (s.clockIn || '').slice(0, 10) <= to));
 
   const buildPdf = async (u) => {
     const { doc, margin, startY } = await createLetterheadPdf({
@@ -4392,16 +4415,21 @@ const WhatsAppNotifyModal = ({ open, onClose, users }) => {
       // No hourly-rate pay calculation — pay isn't computed from hours here;
       // shortfalls are made up with extra work rather than deducted, so this
       // is an attendance summary, not a wage computation.
-      const hours = hoursForUser(u.id);
+      const { daysWorked, actualHours, expectedHours, hoursShort } = summaryForUser(u.id);
       doc.setFont('helvetica', 'normal');
       [
         `Period: ${from} to ${to}`,
         `Role: ${u.role}`,
+        `Days worked: ${daysWorked}`,
+        `Expected hours (7:30 AM-6:00 PM per day): ${expectedHours.toFixed(1)}`,
       ].forEach((line) => { doc.text(line, margin, y); y += 20; });
       y += 10;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(13);
-      doc.text(`Hours worked: ${hours.toFixed(1)}`, margin, y);
+      doc.text(`Hours worked: ${actualHours.toFixed(1)}`, margin, y);
+      y += 22;
+      doc.setTextColor(hoursShort > 0 ? 190 : 5, hoursShort > 0 ? 18 : 122, hoursShort > 0 ? 60 : 61);
+      doc.text(hoursShort > 0 ? `Hours short: ${hoursShort.toFixed(1)}` : 'On target — no hours short', margin, y);
     } else {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(13);
@@ -5345,6 +5373,24 @@ const ShiftsView = () => {
     .filter(s => String(s.userId) === String(user?.id))
     .reduce((sum, s) => sum + hoursFor(s.clockIn, s.clockOut), 0);
 
+  // Hours-short summary for the current calendar month (managers only) —
+  // every subject, self-service users and Staff Register employees alike.
+  // Uses the same 7:30-18:00 expected day as the WhatsApp attendance
+  // summary sent at month end, so this on-screen view always matches what
+  // employees actually receive.
+  const monthStartStr = (() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); })();
+  const monthlySummary = (() => {
+    if (!isManager) return [];
+    const bySubject = {};
+    shifts.filter(s => (s.clockIn || '').slice(0, 10) >= monthStartStr).forEach(s => {
+      const key = subjectKey(s);
+      (bySubject[key] = bySubject[key] || { name: s.name, role: s.role, shifts: [] }).shifts.push(s);
+    });
+    return Object.values(bySubject)
+      .map(v => ({ name: v.name, role: v.role, ...summarizeHours(v.shifts) }))
+      .sort((a, b) => b.hoursShort - a.hoursShort);
+  })();
+
   const exportTimesheet = () => {
     const rows = [[
       'Employee', 'Role', 'Date', 'Clock in', 'Clock out', 'Hours',
@@ -5491,6 +5537,49 @@ const ShiftsView = () => {
           </div>
         )}
       </div>
+
+      {/* Hours short this month — managers only. Work day is 7:30 AM-6:00 PM
+          (10.5h); shortfall nets across the whole month rather than being
+          counted day by day, so going long one day covers being short
+          another. This is the same math the WhatsApp attendance summary
+          (Settings > Users > Notify via WhatsApp) sends at month end. */}
+      {isManager && monthlySummary.length > 0 && (
+        <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden mb-5">
+          <div className="p-5 border-b border-stone-200/80">
+            <h3 className="font-semibold text-stone-900">Hours short this month</h3>
+            <p className="text-xs text-stone-500 mt-0.5">Expected day: 7:30 AM-6:00 PM ({EXPECTED_HOURS_PER_DAY}h) · since {monthStartStr}</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs text-stone-500 bg-stone-50/60">
+                <tr>
+                  <th className="text-left font-medium px-5 py-3">Employee</th>
+                  <th className="text-right font-medium px-5 py-3">Days worked</th>
+                  <th className="text-right font-medium px-5 py-3">Hours worked</th>
+                  <th className="text-right font-medium px-5 py-3">Expected</th>
+                  <th className="text-right font-medium px-5 py-3">Hours short</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {monthlySummary.map((r, i) => (
+                  <tr key={i}>
+                    <td className="px-5 py-3">
+                      <div className="font-medium text-stone-900">{r.name}</div>
+                      <div className="text-xs text-stone-500 capitalize">{r.role}</div>
+                    </td>
+                    <td className="px-5 py-3 text-right text-stone-600">{r.daysWorked}</td>
+                    <td className="px-5 py-3 text-right text-stone-600">{formatHours(r.actualHours)}</td>
+                    <td className="px-5 py-3 text-right text-stone-600">{formatHours(r.expectedHours)}</td>
+                    <td className={`px-5 py-3 text-right font-medium ${r.hoursShort > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                      {r.hoursShort > 0 ? formatHours(r.hoursShort) : 'On target'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Shift history — own for cashiers, everyone for managers/admins */}
       <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
