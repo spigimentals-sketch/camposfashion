@@ -185,9 +185,22 @@ const withVariants = (products, storeId = null) => {
 // not mentioned gets 0. Delete-then-reinsert is safe here: nothing else
 // references a store_stock row by id, so there's no stable-id concern like
 // there is for variants (which a cart may already reference).
-const saveStoreStock = (variantId, stockByStore) => {
-  const stores = db.prepare('SELECT id FROM stores').all();
-  const byStore = new Map((Array.isArray(stockByStore) ? stockByStore : []).map(s => [Number(s.storeId), Number(s.stock) || 0]));
+//
+// Add/Edit Product never actually sends stockByStore — it only has a flat
+// `stock` number per variant (multi-store distribution is a separate,
+// per-store adjustment flow). Without this fallback, saving a product
+// through that form silently zeroed every store's stock: stockByStore came
+// through as undefined, so every store's share resolved to 0 and got
+// written over whatever was already there. When it's missing, put the
+// whole flat `stock` amount on this shop's first store instead — correct
+// for the common single-store case, and preserves the total for a
+// multi-store shop rather than deleting it.
+const saveStoreStock = (variantId, stockByStore, flatStock) => {
+  const stores = db.prepare('SELECT id FROM stores ORDER BY id').all();
+  const hasBreakdown = Array.isArray(stockByStore) && stockByStore.length > 0;
+  const byStore = hasBreakdown
+    ? new Map(stockByStore.map(s => [Number(s.storeId), Number(s.stock) || 0]))
+    : new Map(stores.length ? [[stores[0].id, Number(flatStock) || 0]] : []);
   db.prepare('DELETE FROM store_stock WHERE variantId=?').run(variantId);
   const ins = db.prepare('INSERT INTO store_stock (storeId, variantId, stock) VALUES (?, ?, ?)');
   stores.forEach(st => ins.run(st.id, variantId, byStore.get(st.id) || 0));
@@ -219,7 +232,7 @@ const saveVariants = (productId, variants) => {
       variantId = info.lastInsertRowid;
     }
     keepIds.add(variantId);
-    saveStoreStock(variantId, v.stockByStore);
+    saveStoreStock(variantId, v.stockByStore, v.stock);
     touchedVariantIds.push(variantId);
   });
   const toDelete = existingIds.filter(id => !keepIds.has(id));
