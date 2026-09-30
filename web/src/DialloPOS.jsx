@@ -1928,7 +1928,7 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
 
 
         <div className="lg:flex-1 lg:overflow-y-auto px-4 sm:px-7 py-5">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {filtered.map(p => {
               const outOfStock = p.stock <= 0;
               const lowStock = !outOfStock && p.stock < lowStockThreshold;
@@ -2070,7 +2070,7 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
             <div className="space-y-2">
               {cart.map(item => (
                 <div key={`${item.id}-${item.mode}`} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-stone-50 group">
-                  <div className="w-11 h-11 rounded-lg bg-stone-100 flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden">{item.image ? <img src={imageUrl(item.image)} alt="" className="w-full h-full object-cover" /> : item.emoji}</div>
+                  <div className="w-14 h-14 rounded-lg bg-stone-100 flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden">{item.image ? <img src={imageUrl(item.image)} alt="" className="w-full h-full object-cover" /> : item.emoji}</div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-stone-900 truncate">
                       {productName(item)}
