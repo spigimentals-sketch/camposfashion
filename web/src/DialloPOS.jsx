@@ -14,7 +14,7 @@ import {
 import { getTenantToken } from './api.js';
 import {
   ShoppingCart, Package, Users, BarChart3, Settings,
-  Search, Scan, Plus, Minus, X, CreditCard, Banknote, Smartphone,
+  Search, Scan, Plus, Minus, X, CreditCard, Banknote,
   Bell, TrendingUp, AlertTriangle, CheckCircle2,
   Receipt, FileText, ChevronRight, Download,
   Apple, Beef, Milk, Cookie, Wine, Sparkles, Coffee, Wheat,
@@ -1558,7 +1558,9 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   const [search, setSearch] = useState('');
   const [customer, setCustomer] = useState(null);
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('mobile');
+  // No cash/mobile picker at checkout anymore — every sale is just recorded
+  // as cash, so Complete Payment is one click straight from the cart.
+  const paymentMethod = 'cash';
   const [showReceipt, setShowReceipt] = useState(false);
   const [showScan, setShowScan] = useState(false);
   const [discount, setDiscount] = useState(0);         // FCFA flat discount on this order
@@ -2080,24 +2082,6 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
               <span className="text-stone-900 font-medium">{t('total')}</span>
               <span className="font-serif text-2xl text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(total)}</span>
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-1.5 mb-3">
-            {[
-              { id: 'cash', icon: Banknote, label: t('cash') },
-              { id: 'mobile', icon: Smartphone, label: t('mobile') },
-            ].map(m => {
-              const Icon = m.icon;
-              const active = paymentMethod === m.id;
-              return (
-                <button key={m.id} onClick={() => setPaymentMethod(m.id)}
-                  className={`flex flex-col items-center gap-1 py-2.5 rounded-lg border transition-all ${
-                    active ? 'border-rose-900 bg-rose-900 text-white' : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300'
-                  }`}>
-                  <Icon size={16} strokeWidth={1.8} /><span className="text-[11px] font-medium">{m.label}</span>
-                </button>
-              );
-            })}
           </div>
 
           {!activeCashier && (
