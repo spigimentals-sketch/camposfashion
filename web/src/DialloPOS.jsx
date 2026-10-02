@@ -1522,6 +1522,119 @@ const ReturnRequestModal = ({ open, onClose }) => {
   );
 };
 
+// Runs globally for anyone who can run a till (admin/manager/cashier, same
+// as onlineOrders permission) — polls for pending online orders (see
+// OnlineOrdersView) and pops a confirm/reject modal the moment a new one
+// shows up, so staff don't have to be sitting on the Online Orders screen
+// to notice a customer paid. Mirrors Discount/ReturnApprovalWatcher's
+// polling pattern; confirming/rejecting here hits the exact same
+// api.confirmOnlineOrder/rejectOnlineOrder the Online Orders list uses.
+const OnlineOrderWatcher = () => {
+  const { can } = useRole();
+  const { online } = useData();
+  const { toast } = useToast();
+  const [pending, setPending] = useState([]);
+  const [current, setCurrent] = useState(null);
+  const [busy, setBusy] = useState(false);
+  // Orders the cashier has explicitly dismissed ("Later") this session —
+  // they stay in the Online Orders list either way, this just stops the
+  // popup from re-grabbing focus for one already seen and set aside.
+  const dismissedRef = useRef(new Set());
+
+  useEffect(() => {
+    if (!can.onlineOrders || !online) return;
+    const poll = async () => {
+      try {
+        const list = (await api.getOnlineOrders()).filter(o => o.status === 'pending' && !dismissedRef.current.has(o.id));
+        setPending(list);
+        setCurrent(prev => {
+          if (prev && list.find(o => o.id === prev.id)) return prev;
+          return list[0] || null;
+        });
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 8000);
+    return () => clearInterval(id);
+  }, [can.onlineOrders, online]); // eslint-disable-line
+
+  const advance = () => {
+    const next = pending.filter(o => o.id !== current.id);
+    setPending(next);
+    setCurrent(next[0] || null);
+  };
+  const confirm = async () => {
+    if (!current) return;
+    setBusy(true);
+    try {
+      await api.confirmOnlineOrder(current.id);
+      toast(`Order confirmed — ${fmt(current.subtotal)} recorded as a sale`);
+      advance();
+    } catch (e) { toast(e.message || 'Could not confirm order', 'error'); }
+    finally { setBusy(false); }
+  };
+  const reject = async () => {
+    if (!current) return;
+    if (!window.confirm(`Reject this order from ${current.customerName}? Reserved stock will be given back.`)) return;
+    setBusy(true);
+    try {
+      await api.rejectOnlineOrder(current.id);
+      toast('Order rejected — stock restored');
+      advance();
+    } catch (e) { toast(e.message || 'Could not reject order', 'error'); }
+    finally { setBusy(false); }
+  };
+  const later = () => {
+    dismissedRef.current.add(current.id);
+    advance();
+  };
+
+  if (!current || !can.onlineOrders) return null;
+  const items = JSON.parse(current.items || '[]');
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl w-96 overflow-hidden">
+        <div className="bg-cyan-700 px-5 py-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-white/25 flex items-center justify-center flex-shrink-0">
+            <Smartphone size={18} className="text-white" />
+          </div>
+          <div>
+            <div className="text-white font-semibold">New Online Order</div>
+            <div className="text-cyan-100 text-[11px] mt-0.5">{current.customerName} · {current.customerPhone}</div>
+          </div>
+        </div>
+        <div className="p-5">
+          <div className="bg-stone-50 rounded-xl p-3 mb-4 max-h-40 overflow-y-auto space-y-1">
+            {items.map((it, i) => (
+              <div key={i} className="flex justify-between text-sm">
+                <span className="text-stone-700 truncate flex-1 mr-2">
+                  {it.qty} × {it.name}{(it.size || it.color) ? ` (${[it.size, it.color].filter(Boolean).join(' / ')})` : ''}
+                </span>
+                <span className="text-stone-500 flex-shrink-0">{fmt(it.price * it.qty)}</span>
+              </div>
+            ))}
+          </div>
+          {current.note && <div className="text-xs text-stone-500 italic mb-3">"{current.note}"</div>}
+          <div className="flex justify-between font-bold text-stone-900 text-base mb-5">
+            <span>Awaiting confirmation</span>
+            <span style={{ fontFamily: "'Fraunces', serif" }}>{fmt(current.subtotal)}</span>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={reject} disabled={busy} className="flex-1 py-3 border-2 border-rose-200 text-rose-600 rounded-xl font-medium hover:bg-rose-50 transition-all disabled:opacity-50">Reject</button>
+            <button onClick={confirm} disabled={busy} className="flex-1 py-3 bg-gradient-to-r from-emerald-700 to-emerald-900 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-emerald-900/20 transition-all disabled:opacity-50">
+              {busy ? '…' : 'Confirm payment'}
+            </button>
+          </div>
+          <button onClick={later} disabled={busy} className="w-full mt-2 py-2 text-xs text-stone-400 hover:text-stone-600">Decide later</button>
+          {pending.length > 1 && (
+            <div className="text-center text-xs text-stone-400 mt-1">{pending.length - 1} more order{pending.length - 1 > 1 ? 's' : ''} waiting</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Runs globally for admin/manager — polls for pending return requests and
 // shows an approval modal, mirroring DiscountApprovalWatcher. Unlike that
 // flow, approving here doesn't need to "wake up" any cashier's browser: the
@@ -6655,6 +6768,7 @@ function DialloPOSShell({ titles }) {
       {/* Global discount approval modal — visible to admin/manager on any page */}
       <DiscountApprovalWatcher />
       <ReturnApprovalWatcher />
+      <OnlineOrderWatcher />
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar title={titles[view].title} subtitle={subtitleFor(view)} onHome={() => go('home')} onSettings={() => go('settings')} showHome={view !== 'home'} />
