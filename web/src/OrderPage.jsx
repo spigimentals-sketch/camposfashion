@@ -10,7 +10,12 @@
 // actually seen the mobile money land (see OnlineOrdersView in
 // DialloPOS.jsx). The customer is told that plainly before they submit.
 import React, { useState, useEffect, useMemo } from 'react';
-import { MapPin, Phone, Package, ShoppingCart, Plus, Minus, X, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { MapPin, Phone, Package, ShoppingCart, Plus, Minus, X, CheckCircle2, AlertTriangle, Clock, Download } from 'lucide-react';
+// buildReceiptPdf is a pure PDF-builder with no network/token logic of its
+// own — safe to import from shared.jsx without pulling in any of api.js's
+// token handling into this page, which still only ever talks to the server
+// via its own plain `fetch` calls below, never api.js's request helper.
+import { buildReceiptPdf } from './shared.jsx';
 
 const BASE = import.meta.env.VITE_API_URL || '';
 const fmt = (n) => new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' FCFA';
@@ -55,7 +60,14 @@ export default function OrderPage({ slug }) {
   const [form, setForm] = useState({ customerName: '', customerPhone: '', note: '' });
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
-  const [confirmation, setConfirmation] = useState(null); // { code }
+  const [confirmation, setConfirmation] = useState(null); // { id, code }
+  // ?order=<id> in the URL — set automatically after a submit (see the
+  // confirmation screen's "Track this order" link) so a customer can come
+  // back later, check whether the shop confirmed yet, and download a
+  // receipt once it's confirmed, without any account/login of their own.
+  const [trackId, setTrackId] = useState(() => new URLSearchParams(window.location.search).get('order'));
+  const [tracked, setTracked] = useState({ loading: !!trackId, error: null, data: null });
+  const [downloadingReceipt, setDownloadingReceipt] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +80,33 @@ export default function OrderPage({ slug }) {
       .catch(() => { if (!cancelled) setState({ loading: false, error: true, data: null }); });
     return () => { cancelled = true; };
   }, [slug]);
+
+  const loadTracked = (id) => {
+    setTracked({ loading: true, error: null, data: null });
+    fetch(`${BASE}/api/order/${encodeURIComponent(slug)}/status/${encodeURIComponent(id)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error('not_found');
+        return res.json();
+      })
+      .then((data) => setTracked({ loading: false, error: null, data }))
+      .catch(() => setTracked({ loading: false, error: true, data: null }));
+  };
+  useEffect(() => { if (trackId) loadTracked(trackId); }, [trackId]); // eslint-disable-line
+
+  const downloadReceipt = async () => {
+    const o = tracked.data;
+    if (!o) return;
+    setDownloadingReceipt(true);
+    try {
+      const doc = await buildReceiptPdf({
+        items: o.items, subtotal: o.subtotal, total: o.subtotal,
+        customer: { name: o.customerName }, method: 'mobile', invoiceNo: `ORD-${o.id}`,
+      }, { businessName: o.shopName, address: o.address, phone: o.phone });
+      doc.save(`receipt-ORD-${o.id}.pdf`);
+    } finally {
+      setDownloadingReceipt(false);
+    }
+  };
 
   const total = useMemo(() => cart.reduce((s, it) => s + it.price * it.qty, 0), [cart]);
   const itemCount = useMemo(() => cart.reduce((s, it) => s + it.qty, 0), [cart]);
@@ -114,7 +153,7 @@ export default function OrderPage({ slug }) {
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Could not submit your order');
-      setConfirmation({ code: body.code });
+      setConfirmation({ id: body.id, code: body.code });
       setCart([]);
       setCheckoutOpen(false);
       setCartOpen(false);
@@ -151,9 +190,83 @@ export default function OrderPage({ slug }) {
           </div>
           <h1 className="text-lg font-semibold text-stone-900" style={{ fontFamily: "'Fraunces', serif" }}>Order submitted</h1>
           <p className="text-sm text-stone-500 mt-2">Your reference is <span className="font-mono font-medium text-stone-700">{confirmation.code}</span>. The shop will confirm your order once they've received your payment.</p>
-          <button onClick={() => setConfirmation(null)} className="mt-5 px-4 py-2 bg-rose-900 text-white rounded-lg text-sm font-medium hover:bg-rose-800">
+          <button onClick={() => {
+            const url = new URL(window.location.href);
+            url.searchParams.set('order', confirmation.id);
+            window.history.replaceState({}, '', url);
+            setTrackId(String(confirmation.id));
+            setConfirmation(null);
+          }} className="mt-5 w-full px-4 py-2 bg-rose-900 text-white rounded-lg text-sm font-medium hover:bg-rose-800">
+            Track this order
+          </button>
+          <button onClick={() => setConfirmation(null)} className="mt-2 w-full px-4 py-2 text-stone-500 text-sm font-medium hover:text-stone-700">
             Place another order
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Tracking a specific order (?order=<id>) — a customer revisiting the
+  // link they got after submitting. Status "confirmed" is what unlocks the
+  // self-service receipt download they're expected to show when picking up
+  // their items; "pending" just means the shop hasn't confirmed payment
+  // yet, "rejected" means it won't be fulfilled.
+  if (trackId) {
+    const backToShopping = () => { setTrackId(null); window.history.replaceState({}, '', window.location.pathname); };
+    if (tracked.loading) {
+      return <div className="min-h-screen flex items-center justify-center bg-stone-50 text-stone-400 text-sm">Loading…</div>;
+    }
+    if (tracked.error || !tracked.data) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-stone-50 p-6">
+          <div className="text-center max-w-sm">
+            <h1 className="text-lg font-semibold text-stone-900" style={{ fontFamily: "'Fraunces', serif" }}>Order not found</h1>
+            <p className="text-sm text-stone-500 mt-1">This reference doesn't match any order for this shop.</p>
+            <button onClick={backToShopping} className="mt-4 px-4 py-2 bg-rose-900 text-white rounded-lg text-sm font-medium hover:bg-rose-800">Back to shopping</button>
+          </div>
+        </div>
+      );
+    }
+    const o = tracked.data;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-50 p-6">
+        <div className="max-w-sm w-full bg-white border border-stone-200 rounded-2xl p-6">
+          <div className="text-center mb-4">
+            <div className={`w-14 h-14 rounded-full mx-auto mb-3 flex items-center justify-center ${
+              o.status === 'confirmed' ? 'bg-emerald-50' : o.status === 'rejected' ? 'bg-rose-50' : 'bg-amber-50'
+            }`}>
+              {o.status === 'confirmed' ? <CheckCircle2 size={26} className="text-emerald-600" />
+                : o.status === 'rejected' ? <X size={26} className="text-rose-600" />
+                : <Clock size={26} className="text-amber-600" />}
+            </div>
+            <h1 className="text-lg font-semibold text-stone-900" style={{ fontFamily: "'Fraunces', serif" }}>
+              {o.status === 'confirmed' ? 'Order confirmed' : o.status === 'rejected' ? 'Order rejected' : 'Waiting for confirmation'}
+            </h1>
+            <p className="text-xs text-stone-500 mt-1">Order ORD-{o.id} · {o.shopName}</p>
+          </div>
+          <div className="bg-stone-50 rounded-xl p-3 mb-4 space-y-1">
+            {o.items.map((it, i) => (
+              <div key={i} className="flex justify-between text-sm">
+                <span className="text-stone-700">{it.qty} × {it.name}{(it.size || it.color) ? ` (${[it.size, it.color].filter(Boolean).join(' / ')})` : ''}</span>
+                <span className="text-stone-500">{fmt(it.price * it.qty)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between font-semibold text-stone-900 mb-5">
+            <span>Total</span><span style={{ fontFamily: "'Fraunces', serif" }}>{fmt(o.subtotal)}</span>
+          </div>
+          {o.status === 'confirmed' && (
+            <button onClick={downloadReceipt} disabled={downloadingReceipt}
+              className="w-full py-2.5 bg-emerald-700 text-white rounded-xl text-sm font-medium hover:bg-emerald-800 disabled:opacity-50 flex items-center justify-center gap-2 mb-2">
+              <Download size={15} /> {downloadingReceipt ? 'Preparing…' : 'Download receipt'}
+            </button>
+          )}
+          {o.status === 'pending' && (
+            <p className="text-xs text-stone-500 text-center mb-2">Check back once you've sent your payment and the shop has confirmed it.</p>
+          )}
+          <button onClick={() => loadTracked(trackId)} className="w-full py-2 text-xs text-stone-500 hover:text-stone-700">Refresh status</button>
+          <button onClick={backToShopping} className="w-full py-2 text-xs text-stone-400 hover:text-stone-600">Back to shopping</button>
         </div>
       </div>
     );

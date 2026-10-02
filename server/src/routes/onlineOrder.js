@@ -158,4 +158,35 @@ r.post('/order/:slug', h((req, res) => {
   res.status(result.status).json(result.body);
 }));
 
+// Lets a customer come back to their own order (the id they were given
+// after submitting) and check whether it's been confirmed yet, without any
+// login — this is what powers OrderPage.jsx's "Track your order" /
+// self-service receipt download. Deliberately returns only what that
+// customer already gave us or needs to see a receipt — never anything
+// about other orders, other customers, or the shop's own numbers.
+r.get('/order/:slug/status/:id', h((req, res) => {
+  const tenant = resolveTenant(req.params.slug);
+  if (!tenant) return res.status(404).json({ error: 'Not found' });
+
+  const conn = getTenantConnection(tenant.slug, tenant.dbPath);
+  runInTenant({ slug: tenant.slug, conn, tenantRow: tenant }, () => {
+    const row = conn.prepare('SELECT * FROM online_orders WHERE id=?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Order not found' });
+    const settingsRow = conn.prepare('SELECT json FROM settings WHERE id=1').get();
+    const settings = settingsRow ? JSON.parse(settingsRow.json) : {};
+    res.json({
+      id: row.id,
+      status: row.status,
+      customerName: row.customerName,
+      items: JSON.parse(row.items),
+      subtotal: row.subtotal,
+      note: row.note,
+      createdAt: row.createdAt,
+      shopName: settings.businessName || tenant.shopName,
+      address: settings.address || null,
+      phone: settings.phone || null,
+    });
+  });
+}));
+
 export default r;

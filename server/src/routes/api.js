@@ -1139,6 +1139,12 @@ r.get('/online-orders', requireAuth, h((req, res) => {
   res.json(db.prepare('SELECT * FROM online_orders ORDER BY createdAt DESC LIMIT 200').all());
 }));
 
+// Loose digits-only match so "677 00 00 00", "+237677000000" and
+// "237-677-00-00-00" are recognized as the same number — same idea as the
+// client's normalizePhone, done here since this match has to happen
+// server-side against the live customers table.
+const phoneDigits = (s) => (s || '').toString().replace(/[^\d]/g, '').replace(/^0+/, '');
+
 r.put('/online-orders/:id/confirm', requireAuth, requireRole('admin', 'manager', 'cashier'), h((req, res) => {
   const row = db.prepare('SELECT * FROM online_orders WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'not found' });
@@ -1150,9 +1156,23 @@ r.put('/online-orders/:id/confirm', requireAuth, requireRole('admin', 'manager',
   const costOf = db.prepare('SELECT cost FROM products WHERE id=?');
 
   const orderId = db.transaction(() => {
+    // A customer ordering online becomes a real customer record, same as
+    // one a cashier quick-adds by phone in-store — matched by phone first
+    // so repeat online orders don't create duplicate customers.
+    const wantDigits = phoneDigits(row.customerPhone);
+    const existingCustomer = db.prepare('SELECT * FROM customers').all().find((c) => c.phone && phoneDigits(c.phone) === wantDigits);
+    let customerId;
+    if (existingCustomer) {
+      customerId = existingCustomer.id;
+    } else {
+      const custInfo = db.prepare('INSERT INTO customers (name,phone,points,tier,visits,spent) VALUES (?,?,?,?,?,?)')
+        .run(row.customerName, row.customerPhone, 0, 'Bronze', 0, 0);
+      customerId = custInfo.lastInsertRowid;
+    }
+
     const orderInfo = db.prepare(
       'INSERT INTO orders (invoiceNo,customerId,subtotal,discount,tva,total,method,cashier,createdAt,storeId,manualEntry) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-    ).run(invoiceNo, null, row.subtotal, 0, 0, row.subtotal, 'mobile', resolvedBy, now, row.storeId, 0);
+    ).run(invoiceNo, customerId, row.subtotal, 0, 0, row.subtotal, 'mobile', resolvedBy, now, row.storeId, 0);
     const newOrderId = orderInfo.lastInsertRowid;
     const itemIns = db.prepare(
       'INSERT INTO order_items (orderId,productId,name,sku,price,cost,qty,mode,unitsPerPacket,variantId,size,color,variantSku) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
@@ -1161,6 +1181,13 @@ r.put('/online-orders/:id/confirm', requireAuth, requireRole('admin', 'manager',
       const unitCost = it.productId ? (costOf.get(it.productId)?.cost || 0) : 0;
       itemIns.run(newOrderId, it.productId, it.name, it.sku, it.price, unitCost, it.qty, 'unit', null, it.variantId || null, it.size || null, it.color || null, it.sku || null);
     });
+
+    // Same points-earning rule as a normal till sale (insertSale): 1 point
+    // per 100 FCFA actually paid.
+    const pointsEarned = Math.floor(row.subtotal / 100);
+    db.prepare('UPDATE customers SET spent = spent + ?, visits = visits + 1, points = points + ? WHERE id=?')
+      .run(row.subtotal, pointsEarned, customerId);
+
     db.prepare("UPDATE online_orders SET status='confirmed',orderId=?,resolvedAt=?,resolvedBy=? WHERE id=?").run(newOrderId, now, resolvedBy, row.id);
     return newOrderId;
   })();
