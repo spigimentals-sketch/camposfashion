@@ -595,13 +595,13 @@ export function ProductForm({ open, onClose, initial }) {
         </div>
       </div>
 
-      {/* Cost price + quantity — the two numbers needed to know what a
-          restock actually cost and how much of it there is. Quantity only
-          shows here as a single field when variants are off (settings >
-          Product variants); with variants on, stock is per size/color
-          further down instead, so this row is just cost price alone. */}
+      {/* Selling price + quantity — the two numbers needed to ring this up
+          and know how much of it there is. Quantity only shows here as a
+          single field when variants are off (settings > Product variants);
+          with variants on, stock is per size/color further down instead,
+          so this row is just selling price alone. */}
       <div className={useVariants ? '' : 'grid grid-cols-2 gap-3'}>
-        <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
+        <Field label="Selling price (FCFA)"><Input type="number" value={form.price} onChange={set('price')} /></Field>
         {!useVariants && (
           <Field label="Quantity">
             <Input type="number" value={form.variants?.[0]?.stock ?? 0} onChange={e => updateVariant(0, 'stock', e.target.value)} />
@@ -648,7 +648,7 @@ export function ProductForm({ open, onClose, initial }) {
         )}
       </Field>
 
-      <Field label="Selling price (FCFA)"><Input type="number" value={form.price} onChange={set('price')} /></Field>
+      <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
 
       {/* Bulk purchase calculator — a helper for filling in Cost price above. */}
       <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
