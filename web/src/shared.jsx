@@ -1051,8 +1051,12 @@ export function LoginScreen({ lang, setLang }) {
 
       <div className="relative z-10 w-full max-w-sm">
         <div className="text-center mb-6" style={{ textShadow: '0 2px 12px rgba(0,0,0,0.55)' }}>
-          <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/25 mx-auto mb-3 flex items-center justify-center">
-            <ShieldCheck className="text-white" size={26} />
+          <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/25 mx-auto mb-3 flex items-center justify-center overflow-hidden">
+            {settings?.logoUrl ? (
+              <img src={imageUrl(settings.logoUrl)} alt={shopName} className="w-full h-full object-contain p-1.5" />
+            ) : (
+              <ShieldCheck className="text-white" size={26} />
+            )}
           </div>
           <h1 className="text-2xl text-white" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{shopName}</h1>
           <p className="text-sm text-white/80 mt-1">Sign in to continue</p>
@@ -1235,21 +1239,31 @@ export async function createLetterheadPdf({ docTitle, settings = {} } = {}) {
   doc.setFillColor(217, 119, 6); // amber-600
   doc.rect(0, bandHeight, pageWidth, 3, 'F');
 
-  // Logo mark: a white rounded square with the business's initials, the same
-  // monogram-avatar pattern used for staff initials elsewhere in the app —
-  // derived from settings so it follows the configured business name rather
-  // than a hardcoded company.
+  // Logo mark: the shop's own uploaded logo when they have one, else a white
+  // rounded square with the business's initials (same monogram-avatar
+  // pattern used for staff initials elsewhere in the app) — derived from
+  // settings so it follows the configured business rather than a hardcoded
+  // company.
   const businessName = settings.businessName || 'Riskyc Fashion';
   const monogram = businessName.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'R';
   const logoSize = 40;
   const logoX = margin;
   const logoY = (bandHeight - logoSize) / 2;
-  doc.setFillColor(255, 255, 255);
-  doc.roundedRect(logoX, logoY, logoSize, logoSize, 8, 8, 'F');
-  doc.setTextColor(136, 19, 55);
-  doc.setFont('times', 'bold');
-  doc.setFontSize(monogram.length > 1 ? 16 : 22);
-  doc.text(monogram, logoX + logoSize / 2, logoY + logoSize / 2 + (monogram.length > 1 ? 5.5 : 7), { align: 'center' });
+  const logo = await loadLogoImage(settings);
+  if (logo) {
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(logoX, logoY, logoSize, logoSize, 8, 8, 'F');
+    const fit = Math.min((logoSize - 6) / logo.w, (logoSize - 6) / logo.h);
+    const w = logo.w * fit, h = logo.h * fit;
+    doc.addImage(logo.dataUrl, 'PNG', logoX + (logoSize - w) / 2, logoY + (logoSize - h) / 2, w, h);
+  } else {
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(logoX, logoY, logoSize, logoSize, 8, 8, 'F');
+    doc.setTextColor(136, 19, 55);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(monogram.length > 1 ? 16 : 22);
+    doc.text(monogram, logoX + logoSize / 2, logoY + logoSize / 2 + (monogram.length > 1 ? 5.5 : 7), { align: 'center' });
+  }
 
   // Business name (serif, echoing the Fraunces headings used on-screen —
   // jsPDF only ships Helvetica/Times/Courier, so Times stands in for it)
@@ -1311,6 +1325,34 @@ export function finishLetterheadPdf(doc, { settings = {} } = {}) {
   }
 }
 
+// Loads a shop's uploaded logo for use in a generated document/image.
+// Resolves to null (never rejects) if there's no logo configured or it fails
+// to load, so callers can always fall back to the monogram mark without a
+// try/catch. Returns both the decoded <img> (for drawImage on a canvas) and
+// a re-encoded PNG data URL (what jsPDF's addImage needs, regardless of the
+// original upload's format — a logo could've been uploaded as a JPEG).
+function loadLogoImage(settings) {
+  const url = settings?.logoUrl ? imageUrl(settings.logoUrl) : null;
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        resolve({ img, dataUrl: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight });
+      } catch {
+        resolve(null); // tainted canvas or similar — fall back to monogram
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
 // Draws a rounded rectangle path (Canvas has no built-in roundRect in every
 // supported browser) — used for the receipt image's logo mark.
 function roundedRectPath(ctx, x, y, w, h, r) {
@@ -1330,7 +1372,7 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 // jsPDF-based like the other generated documents — drawn straight onto a
 // canvas instead and exported as a JPEG data URL. Height is computed from
 // the item count up front since canvas has no auto-flowing page.
-export function buildReceiptImage(data, settings = {}, format = 'jpeg') {
+export async function buildReceiptImage(data, settings = {}, format = 'jpeg') {
   const { items = [], subtotal = 0, discount = 0, pointsDiscountAmt = 0, creditUsed = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
   const width = 380;
   const margin = 20;
@@ -1362,16 +1404,24 @@ export function buildReceiptImage(data, settings = {}, format = 'jpeg') {
   const businessName = settings.businessName || 'Riskyc Fashion';
   const monogram = businessName.split(' ').filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase() || 'R';
   const logoSize = 42;
+  const logo = await loadLogoImage(settings);
   ctx.fillStyle = '#ffffff';
   roundedRectPath(ctx, margin, (headerHeight - logoSize) / 2, logoSize, logoSize, 8);
   ctx.fill();
-  ctx.fillStyle = '#881337';
-  ctx.font = `bold ${monogram.length > 1 ? 17 : 22}px Georgia, 'Times New Roman', serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(monogram, margin + logoSize / 2, headerHeight / 2 + 1);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
+  if (logo) {
+    const pad = 4;
+    const fit = Math.min((logoSize - pad * 2) / logo.w, (logoSize - pad * 2) / logo.h);
+    const w = logo.w * fit, h = logo.h * fit;
+    ctx.drawImage(logo.img, margin + (logoSize - w) / 2, (headerHeight - logoSize) / 2 + (logoSize - h) / 2, w, h);
+  } else {
+    ctx.fillStyle = '#881337';
+    ctx.font = `bold ${monogram.length > 1 ? 17 : 22}px Georgia, 'Times New Roman', serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(monogram, margin + logoSize / 2, headerHeight / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
 
   const textX = margin + logoSize + 12;
   ctx.fillStyle = '#ffffff';

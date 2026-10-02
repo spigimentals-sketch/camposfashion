@@ -173,15 +173,15 @@ export default function OrderPage({ slug }) {
   };
   useEffect(() => { if (trackId) loadTracked(trackId); }, [trackId]); // eslint-disable-line
 
-  const downloadReceipt = () => {
+  const downloadReceipt = async () => {
     const o = tracked.data;
     if (!o) return;
     setDownloadingReceipt(true);
     try {
-      const dataUrl = buildReceiptImage({
+      const dataUrl = await buildReceiptImage({
         items: o.items, subtotal: o.subtotal, total: o.subtotal,
         customer: { name: o.customerName }, method: 'mobile', invoiceNo: `ORD-${o.id}`,
-      }, { businessName: o.shopName, address: o.address, phone: o.phone });
+      }, { businessName: o.shopName, address: o.address, phone: o.phone, logoUrl: o.logoUrl });
       const a = document.createElement('a');
       a.href = dataUrl;
       a.download = `receipt-ORD-${o.id}.jpg`;
@@ -354,7 +354,7 @@ export default function OrderPage({ slug }) {
     );
   }
 
-  const { shopName, address, phone, paymentNumber, paymentInstructions, products } = state.data;
+  const { shopName, address, phone, logoUrl, paymentNumber, paymentInstructions, products } = state.data;
   const categories = ['all', ...Array.from(new Set(products.map((p) => p.category)))];
   const q = search.trim().toLowerCase();
   const filtered = products
@@ -365,10 +365,15 @@ export default function OrderPage({ slug }) {
     <div className="min-h-screen bg-stone-50 pb-24">
       <div className="bg-white border-b border-stone-200 px-4 py-5 sm:px-6">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-xl sm:text-2xl font-semibold text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{shopName}</h1>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-stone-500">
-            {address && <span className="flex items-center gap-1"><MapPin size={12} /> {address}</span>}
-            {phone && <span className="flex items-center gap-1"><Phone size={12} /> {phone}</span>}
+          <div className="flex items-center gap-3">
+            {logoUrl && <img src={imageUrl(logoUrl)} alt={shopName} className="h-12 w-12 object-contain flex-shrink-0" />}
+            <div>
+              <h1 className="text-xl sm:text-2xl font-semibold text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{shopName}</h1>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-stone-500">
+                {address && <span className="flex items-center gap-1"><MapPin size={12} /> {address}</span>}
+                {phone && <span className="flex items-center gap-1"><Phone size={12} /> {phone}</span>}
+              </div>
+            </div>
           </div>
           <p className="text-xs text-stone-400 mt-2">Pick what you want below, then pay by mobile money at checkout — the shop confirms your order once they've received it.</p>
           <div className="relative mt-3">

@@ -82,6 +82,7 @@ r.get('/order/:slug', h((req, res) => {
       shopName: settings.businessName || tenant.shopName,
       address: settings.address || null,
       phone: settings.phone || null,
+      logoUrl: settings.logoUrl || null,
       paymentNumber: settings.paymentNumber || null,
       paymentInstructions: settings.paymentInstructions || null,
       products: orderProducts,
@@ -185,6 +186,7 @@ r.get('/order/:slug/status/:id', h((req, res) => {
       shopName: settings.businessName || tenant.shopName,
       address: settings.address || null,
       phone: settings.phone || null,
+      logoUrl: settings.logoUrl || null,
     });
   });
 }));

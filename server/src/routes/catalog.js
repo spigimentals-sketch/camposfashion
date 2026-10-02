@@ -72,6 +72,7 @@ r.get('/catalog/:slug', h((req, res) => {
       shopName: settings.businessName || tenant.shopName,
       address: settings.address || null,
       phone: settings.phone || null,
+      logoUrl: settings.logoUrl || null,
       products: catalogProducts,
     });
   });

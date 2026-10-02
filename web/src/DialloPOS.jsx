@@ -579,9 +579,15 @@ export const Logo = ({ size = 'md', subtitle = 'Point of Sale', hideTextClass = 
   const nameSize = size === 'sm' ? '18px' : size === 'lg' ? '32px' : '20px';
   return (
     <div className="flex items-center gap-2.5 min-w-0">
-      <div className={`${boxSize} rounded-xl bg-gradient-to-br from-rose-600 via-rose-700 to-rose-900 flex items-center justify-center shadow-lg shadow-rose-900/20 relative overflow-hidden flex-shrink-0`}>
-        <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/20" />
-        <span className={`text-white font-serif font-bold ${dSize} relative`} style={{ fontFamily: "'Fraunces', serif" }}>{shopName[0]?.toUpperCase()}</span>
+      <div className={`${boxSize} rounded-xl ${settings?.logoUrl ? 'bg-white' : 'bg-gradient-to-br from-rose-600 via-rose-700 to-rose-900'} flex items-center justify-center shadow-lg shadow-rose-900/20 relative overflow-hidden flex-shrink-0`}>
+        {settings?.logoUrl ? (
+          <img src={imageUrl(settings.logoUrl)} alt={shopName} className="w-full h-full object-contain p-1" />
+        ) : (
+          <>
+            <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/20" />
+            <span className={`text-white font-serif font-bold ${dSize} relative`} style={{ fontFamily: "'Fraunces', serif" }}>{shopName[0]?.toUpperCase()}</span>
+          </>
+        )}
       </div>
       <div className={`${hideTextClass} min-w-0`}>
         <div className="font-serif text-stone-900 leading-none whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: nameSize }}>
@@ -870,7 +876,7 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
     if (!customer?.phone) return;
     setWaPreparing(true);
     try {
-      const dataUrl = buildReceiptImage(data, settings || {});
+      const dataUrl = await buildReceiptImage(data, settings || {});
       const blob = await (await fetch(dataUrl)).blob();
       const filename = `receipt-${invoiceNo || Date.now()}.jpg`;
       const file = new File([blob], filename, { type: 'image/jpeg' });
@@ -880,7 +886,7 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
       }
       if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
         try {
-          const pngDataUrl = buildReceiptImage(data, settings || {}, 'png');
+          const pngDataUrl = await buildReceiptImage(data, settings || {}, 'png');
           const pngBlob = await (await fetch(pngDataUrl)).blob();
           await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
           window.open(`https://wa.me/${normalizePhone(customer.phone)}`, '_blank');
@@ -926,9 +932,13 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
               {/* Logo */}
               {settings?.showLogo !== false && (
                 <div className="flex justify-center mb-2">
-                  <div className="w-10 h-10 rounded-lg bg-stone-900 flex items-center justify-center">
-                    <span className="text-white font-bold text-base" style={{ fontFamily: "'Fraunces', serif" }}>{shopName[0]?.toUpperCase()}</span>
-                  </div>
+                  {settings?.logoUrl ? (
+                    <img src={imageUrl(settings.logoUrl)} alt={shopName} className="h-12 max-w-[160px] object-contain" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-lg bg-stone-900 flex items-center justify-center">
+                      <span className="text-white font-bold text-base" style={{ fontFamily: "'Fraunces', serif" }}>{shopName[0]?.toUpperCase()}</span>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="text-center mb-1">
@@ -4845,6 +4855,7 @@ const SettingsView = () => {
     paperWidth: '80',
     showLogo: true,
     showQR: true,
+    logoUrl: '',
     taxIdPrint: true,
     acceptCash: true,
     acceptCard: true,
@@ -4875,6 +4886,34 @@ const SettingsView = () => {
   const [savedSnapshot, setSavedSnapshot] = useState(null);
   const [userModal, setUserModal] = useState(false);
   const [whatsappModal, setWhatsappModal] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  // Logo upload: reused everywhere the shop's brand mark shows (sidebar,
+  // login screen, receipts, generated PDFs, public catalog/order pages) via
+  // settings.logoUrl — picking a file here uploads it immediately and fills
+  // the field, same pattern as a product photo, but Save still has to be
+  // clicked to actually persist it like every other setting on this screen.
+  const onPickLogo = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast('Please choose an image file', 'error'); return; }
+    setUploadingLogo(true);
+    try {
+      const dataUrl = await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = () => rej(new Error('Could not read file'));
+        fr.readAsDataURL(file);
+      });
+      const { path } = await api.uploadImage(file.name, dataUrl);
+      update('logoUrl')(path);
+      toast('Logo uploaded — click Save to apply it');
+    } catch (err) {
+      toast(err.message || 'Could not upload the logo', 'error');
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
 
   // While the admin is looking at the Users tab, keep the online indicators
   // fresh — heartbeats land server-side every 45s, so poll a bit faster.
@@ -5108,6 +5147,24 @@ const SettingsView = () => {
 
           {tab === 'business' && (
             <SettingsCard title={t('s_business')} desc="Information printed on receipts and invoices">
+              <SettingsField label="Logo" hint="Shown on the login screen, sidebar, receipts and documents">
+                <div className="flex items-center gap-3">
+                  <div className="w-16 h-16 rounded-xl bg-stone-100 border border-stone-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {settings.logoUrl ? (
+                      <img src={imageUrl(settings.logoUrl)} alt="" className="w-full h-full object-contain p-1" />
+                    ) : (
+                      <span className="text-stone-400 text-xs">None</span>
+                    )}
+                  </div>
+                  <label className="px-3 py-1.5 bg-white border border-stone-300 rounded-lg text-sm font-medium text-stone-700 hover:bg-stone-50 cursor-pointer">
+                    {uploadingLogo ? 'Uploading…' : settings.logoUrl ? 'Change logo' : 'Upload logo'}
+                    <input type="file" accept="image/*" className="hidden" disabled={uploadingLogo} onChange={onPickLogo} />
+                  </label>
+                  {settings.logoUrl && (
+                    <button type="button" onClick={() => update('logoUrl')('')} className="text-xs text-stone-500 hover:text-rose-600">Remove</button>
+                  )}
+                </div>
+              </SettingsField>
               <SettingsField label={t('business_name')}>
                 <TextInput value={settings.businessName} onChange={update('businessName')} />
               </SettingsField>

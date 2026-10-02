@@ -55,18 +55,21 @@ export default function CatalogPage({ slug }) {
     );
   }
 
-  const { shopName, address, phone, products } = state.data;
+  const { shopName, address, phone, logoUrl, products } = state.data;
   const categories = ['all', ...Array.from(new Set(products.map((p) => p.category)))];
   const filtered = activeCat === 'all' ? products : products.filter((p) => p.category === activeCat);
 
   return (
     <div className="min-h-screen bg-stone-50">
       <div className="bg-white border-b border-stone-200 px-4 py-5 sm:px-6">
-        <div className="max-w-4xl mx-auto">
-          <h1 className="text-xl sm:text-2xl font-semibold text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{shopName}</h1>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-stone-500">
-            {address && <span className="flex items-center gap-1"><MapPin size={12} /> {address}</span>}
-            {phone && <span className="flex items-center gap-1"><Phone size={12} /> {phone}</span>}
+        <div className="max-w-4xl mx-auto flex items-center gap-3">
+          {logoUrl && <img src={imageUrl(logoUrl)} alt={shopName} className="h-12 w-12 object-contain flex-shrink-0" />}
+          <div>
+            <h1 className="text-xl sm:text-2xl font-semibold text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{shopName}</h1>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-stone-500">
+              {address && <span className="flex items-center gap-1"><MapPin size={12} /> {address}</span>}
+              {phone && <span className="flex items-center gap-1"><Phone size={12} /> {phone}</span>}
+            </div>
           </div>
         </div>
       </div>
