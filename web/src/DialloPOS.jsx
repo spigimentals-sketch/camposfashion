@@ -826,12 +826,8 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   // compliance problem, not just cosmetic).
   const { settings } = useData();
   const shopName = settings?.businessName || 'Point of Sale';
-  const [waLink, setWaLink] = useState(null);
   const [waPreparing, setWaPreparing] = useState(false);
-  // Reset once a new sale's receipt replaces this one — otherwise a stale
-  // "Send" link from the PREVIOUS customer's receipt could linger and get
-  // clicked against the current one.
-  useEffect(() => { setWaLink(null); setWaPreparing(false); }, [data]);
+  useEffect(() => { setWaPreparing(false); }, [data]);
   // Inject a scoped @page rule so the receipt prints on 80 mm thermal paper.
   // Done here rather than in index.css so it doesn't affect the Reports
   // page, which also calls window.print() but needs a full-size page.
@@ -858,22 +854,38 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   const change = 0;
   const productName = (p) => lang === 'fr' ? (PRODUCT_NAMES_FR[p.id] || p.name) : p.name;
 
-  // Same wa.me pattern as the Shifts/Users WhatsApp notify flow: no paid
-  // WhatsApp Business API here, so this can only pre-fill a message with a
-  // link to an uploaded image and open the chat — the cashier still has to
-  // press Send themselves in WhatsApp. An image (not a PDF) so it previews
-  // inline in the chat instead of showing as a file to tap open.
+  // No paid WhatsApp Business API here, so there is no way to make a web
+  // page silently deposit a file into someone's chat — that always needs a
+  // human in the loop somewhere. What changed: this used to open a wa.me
+  // link with a TEXT MESSAGE containing a URL (so the customer received a
+  // link, not an image). Now it hands the actual JPEG to the device's
+  // native share sheet (Web Share API, file sharing) — picking WhatsApp
+  // there attaches the real image to the chat, same as sharing a photo
+  // from the camera roll. Only the cashier's one tap (share → WhatsApp →
+  // contact → send) replaces what used to be two taps (open link → send);
+  // the customer now receives an actual image either way, never a link.
   const sendViaWhatsApp = async () => {
     if (!customer?.phone) return;
     setWaPreparing(true);
     try {
       const dataUrl = buildReceiptImage(data, settings || {});
-      const { path } = await api.uploadDocument(`receipt-${invoiceNo || Date.now()}`, dataUrl);
-      const pdfUrl = `${window.location.origin}${path}`;
-      const text = `Hello ${customer.name || ''}, here is your receipt for ${fmt(total)}: ${pdfUrl}`;
-      setWaLink(`https://wa.me/${normalizePhone(customer.phone)}?text=${encodeURIComponent(text)}`);
+      const blob = await (await fetch(dataUrl)).blob();
+      const filename = `receipt-${invoiceNo || Date.now()}.jpg`;
+      const file = new File([blob], filename, { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], text: `Receipt for ${customer.name || 'your purchase'} — ${fmt(total)}` });
+      } else {
+        // Desktop/unsupported browser: no file-sharing API available, so
+        // the closest thing to "send the image" is handing it to the
+        // cashier to attach themselves — download it instead of a link.
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = filename;
+        a.click();
+        toast("This device can't share directly to WhatsApp — receipt image downloaded, attach it in WhatsApp yourself", 'info');
+      }
     } catch (e) {
-      toast(e.message || 'Could not prepare the WhatsApp receipt', 'error');
+      if (e.name !== 'AbortError') toast(e.message || 'Could not share the receipt', 'error');
     } finally {
       setWaPreparing(false);
     }
@@ -1026,17 +1038,10 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
             <Printer size={14} /> {t('print')}
           </button>
           {customer?.phone && (
-            waLink ? (
-              <a href={waLink} target="_blank" rel="noreferrer"
-                className="flex items-center justify-center gap-1.5 py-2 border border-emerald-200 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-medium hover:bg-emerald-100">
-                <MessageCircle size={14} /> Send
-              </a>
-            ) : (
-              <button onClick={sendViaWhatsApp} disabled={waPreparing}
-                className="flex items-center justify-center gap-1.5 py-2 border border-stone-200 bg-white rounded-lg text-xs font-medium hover:bg-stone-50 disabled:opacity-50">
-                <MessageCircle size={14} /> {waPreparing ? 'Preparing…' : 'WhatsApp'}
-              </button>
-            )
+            <button onClick={sendViaWhatsApp} disabled={waPreparing}
+              className="flex items-center justify-center gap-1.5 py-2 border border-stone-200 bg-white rounded-lg text-xs font-medium hover:bg-stone-50 disabled:opacity-50">
+              <MessageCircle size={14} /> {waPreparing ? 'Preparing…' : 'WhatsApp'}
+            </button>
           )}
           <button onClick={() => { onNewOrder ? onNewOrder() : onClose(); }} className="py-2 bg-rose-900 text-white rounded-lg text-xs font-medium hover:bg-rose-800">
             {onNewOrder ? t('new_order') : t('close')}
