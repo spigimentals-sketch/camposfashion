@@ -754,19 +754,32 @@ const TopBar = ({ title, subtitle, children, onHome, onSettings, showHome }) => 
   );
 };
 
-const KpiCard = ({ label, value, delta, icon: Icon, accent }) => (
-  <div className="bg-white rounded-2xl p-5 border border-stone-200/80 hover:shadow-lg hover:shadow-stone-900/5 transition-all">
-    <div className="flex items-start justify-between mb-3">
-      <div className={`w-10 h-10 rounded-xl ${accent} flex items-center justify-center`}><Icon size={18} strokeWidth={1.8} /></div>
-      {delta !== undefined && (
-        <div className={`flex items-center gap-0.5 text-xs font-medium ${delta >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
-          {delta >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}{Math.abs(delta)}%
-        </div>
-      )}
+// `compact` shrinks this down for screens where the card row is secondary
+// to something below it taking priority (e.g. Inventory's stock list) —
+// smaller icon, tighter padding, no delta badge, single-line layout.
+const KpiCard = ({ label, value, delta, icon: Icon, accent, compact }) => (
+  compact ? (
+    <div className="bg-white rounded-xl px-3.5 py-2.5 border border-stone-200/80 flex items-center gap-2.5">
+      <div className={`w-7 h-7 rounded-lg ${accent} flex items-center justify-center flex-shrink-0`}><Icon size={14} strokeWidth={1.8} /></div>
+      <div className="min-w-0">
+        <div className="text-[9px] uppercase tracking-wider text-stone-500 font-medium truncate">{label}</div>
+        <div className="font-serif text-base text-stone-900 leading-tight" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{value}</div>
+      </div>
     </div>
-    <div className="text-[11px] uppercase tracking-widest text-stone-500 font-medium mb-1">{label}</div>
-    <div className="font-serif text-2xl text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{value}</div>
-  </div>
+  ) : (
+    <div className="bg-white rounded-2xl p-5 border border-stone-200/80 hover:shadow-lg hover:shadow-stone-900/5 transition-all">
+      <div className="flex items-start justify-between mb-3">
+        <div className={`w-10 h-10 rounded-xl ${accent} flex items-center justify-center`}><Icon size={18} strokeWidth={1.8} /></div>
+        {delta !== undefined && (
+          <div className={`flex items-center gap-0.5 text-xs font-medium ${delta >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+            {delta >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}{Math.abs(delta)}%
+          </div>
+        )}
+      </div>
+      <div className="text-[11px] uppercase tracking-widest text-stone-500 font-medium mb-1">{label}</div>
+      <div className="font-serif text-2xl text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{value}</div>
+    </div>
+  )
 );
 
 // ============ THERMAL RECEIPT (modal) ============
@@ -2638,11 +2651,13 @@ const ProductsPanel = () => {
 
   return (
     <>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-        <KpiCard label={t('total_skus')} value={products.length.toLocaleString()} icon={Package} accent="bg-rose-50 text-rose-700" />
-        <KpiCard label={t('stock_value')} value={`${fmtShort(stockValue)} FCFA`} icon={Wallet} accent="bg-amber-50 text-amber-700" />
-        <KpiCard label={t('low_stock_items')} value={String(lowStockCount)} icon={AlertTriangle} accent="bg-orange-50 text-orange-700" />
-        <KpiCard label={t('out_of_stock')} value={String(outOfStockCount)} icon={X} accent="bg-rose-50 text-rose-700" />
+      {/* Compact — the stock list below is what matters here, not these
+          summary numbers, so they take as little room as possible. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
+        <KpiCard compact label={t('total_skus')} value={products.length.toLocaleString()} icon={Package} accent="bg-rose-50 text-rose-700" />
+        <KpiCard compact label={t('stock_value')} value={`${fmtShort(stockValue)} FCFA`} icon={Wallet} accent="bg-amber-50 text-amber-700" />
+        <KpiCard compact label={t('low_stock_items')} value={String(lowStockCount)} icon={AlertTriangle} accent="bg-orange-50 text-orange-700" />
+        <KpiCard compact label={t('out_of_stock')} value={String(outOfStockCount)} icon={X} accent="bg-rose-50 text-rose-700" />
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
