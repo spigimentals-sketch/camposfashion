@@ -10,7 +10,7 @@
 // actually seen the mobile money land (see OnlineOrdersView in
 // DialloPOS.jsx). The customer is told that plainly before they submit.
 import React, { useState, useEffect, useMemo } from 'react';
-import { MapPin, Phone, Package, ShoppingCart, Plus, Minus, X, CheckCircle2, AlertTriangle, Clock, Download } from 'lucide-react';
+import { MapPin, Phone, Package, ShoppingCart, Plus, Minus, X, CheckCircle2, AlertTriangle, Clock, Download, Search } from 'lucide-react';
 // buildReceiptPdf is a pure PDF-builder with no network/token logic of its
 // own — safe to import from shared.jsx without pulling in any of api.js's
 // token handling into this page, which still only ever talks to the server
@@ -26,24 +26,102 @@ function imageUrl(p) {
   return `${BASE}${p}`;
 }
 
-// Picking a size/color before adding — only shown when a product has more
-// than one variant; a single-variant product just adds straight to cart.
-function VariantPicker({ product, onClose, onPick }) {
+// A proper product view instead of a tiny "pick a variant" popup — tapping
+// any product card opens this: bigger image, size/color buttons shown
+// right away (not hidden behind a second tap), a quantity stepper, then
+// Add to cart. Matches the size-picker-first flow of the shop's real
+// storefront (riskycfashion.com) rather than a bare list of options.
+function ProductDetailModal({ product, cartQtyFor, onClose, onAdd }) {
+  const sizes = Array.from(new Set(product.variants.map((v) => v.size).filter(Boolean)));
+  const colors = Array.from(new Set(product.variants.map((v) => v.color).filter(Boolean)));
+  // Single-variant products (the common case for a simple accessory) have
+  // nothing to pick — select it automatically so Add to cart works right
+  // away instead of making someone tap a redundant one-item list.
+  const [selectedSize, setSelectedSize] = useState(sizes.length === 1 ? sizes[0] : null);
+  const [selectedColor, setSelectedColor] = useState(colors.length === 1 ? colors[0] : null);
+  const [qty, setQty] = useState(1);
+
+  const matchVariant = (size, color) => product.variants.find((v) =>
+    (size ? v.size === size : !v.size) && (color ? v.color === color : !v.color));
+  // Auto-resolve when only one axis actually varies (e.g. every variant is
+  // the same color, sizes differ) so picking the size alone is enough.
+  const resolvedVariant = product.variants.length === 1 ? product.variants[0]
+    : matchVariant(selectedSize, selectedColor) || (sizes.length <= 1 && colors.length <= 1 ? product.variants[0] : null);
+
+  useEffect(() => { setQty(1); }, [resolvedVariant?.id]);
+
+  const availableForSelection = resolvedVariant?.stock ?? 0;
+  const alreadyInCart = resolvedVariant ? cartQtyFor(resolvedVariant.id) : 0;
+  const canAddMore = resolvedVariant && (alreadyInCart + qty) <= availableForSelection;
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:w-96 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-stone-100">
-          <div className="font-medium text-stone-900">{product.name}</div>
-          <button onClick={onClose} className="p-1 text-stone-400 hover:text-stone-600"><X size={18} /></button>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:w-[420px] max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="aspect-square bg-stone-100 flex items-center justify-center text-6xl overflow-hidden relative">
+          {product.image ? <img src={imageUrl(product.image)} alt={product.name} className="w-full h-full object-cover" /> : (product.emoji || <Package size={40} className="text-stone-300" />)}
+          <button onClick={onClose} className="absolute top-3 right-3 p-1.5 bg-white/90 rounded-full text-stone-600 hover:bg-white"><X size={16} /></button>
         </div>
-        <div className="p-4 space-y-2">
-          {product.variants.map((v) => (
-            <button key={v.id} onClick={() => onPick(v)} disabled={v.stock <= 0}
-              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-stone-200 hover:border-rose-400 hover:bg-rose-50/40 disabled:opacity-40 disabled:cursor-not-allowed text-left">
-              <span className="text-sm text-stone-800">{[v.size, v.color].filter(Boolean).join(' / ') || 'One Size'}</span>
-              <span className="text-xs text-stone-400">{v.stock > 0 ? `${v.stock} left` : 'Out of stock'}</span>
-            </button>
-          ))}
+        <div className="p-5">
+          <div className="text-xs text-stone-400 uppercase tracking-wide">{product.category}</div>
+          <div className="text-lg font-semibold text-stone-900 mt-0.5" style={{ fontFamily: "'Fraunces', serif" }}>{product.name}</div>
+          <div className="text-xl font-semibold text-rose-900 mt-1" style={{ fontFamily: "'Fraunces', serif" }}>{fmt(product.price)}</div>
+
+          {sizes.length > 0 && (
+            <div className="mt-5">
+              <div className="text-xs font-medium text-stone-600 mb-2">Size: {selectedSize && <span className="text-rose-700">{selectedSize}</span>}</div>
+              <div className="flex flex-wrap gap-2">
+                {sizes.map((s) => {
+                  const stockForSize = product.variants.filter((v) => v.size === s && (!selectedColor || v.color === selectedColor)).reduce((sum, v) => sum + v.stock, 0);
+                  return (
+                    <button key={s} onClick={() => setSelectedSize(s)} disabled={stockForSize <= 0}
+                      className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                        selectedSize === s ? 'border-rose-600 bg-rose-600 text-white' : 'border-stone-200 text-stone-700 hover:border-rose-300'
+                      }`}>
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {colors.length > 0 && (
+            <div className="mt-4">
+              <div className="text-xs font-medium text-stone-600 mb-2">Color: {selectedColor && <span className="text-rose-700">{selectedColor}</span>}</div>
+              <div className="flex flex-wrap gap-2">
+                {colors.map((c) => {
+                  const stockForColor = product.variants.filter((v) => v.color === c && (!selectedSize || v.size === selectedSize)).reduce((sum, v) => sum + v.stock, 0);
+                  return (
+                    <button key={c} onClick={() => setSelectedColor(c)} disabled={stockForColor <= 0}
+                      className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                        selectedColor === c ? 'border-rose-600 bg-rose-600 text-white' : 'border-stone-200 text-stone-700 hover:border-rose-300'
+                      }`}>
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-5 flex items-center justify-between rounded-xl border border-stone-200 px-4 py-3">
+            <div>
+              <div className="text-xs text-stone-500">Quantity</div>
+              <div className="text-[11px] text-stone-400">{resolvedVariant ? `${availableForSelection} available` : 'Choose options above'}</div>
+            </div>
+            <div className="flex items-center gap-2 bg-stone-100 rounded-lg p-1">
+              <button onClick={() => setQty((q) => Math.max(1, q - 1))} className="w-8 h-8 rounded-md hover:bg-white flex items-center justify-center"><Minus size={14} /></button>
+              <span className="w-8 text-center font-medium">{qty}</span>
+              <button onClick={() => setQty((q) => Math.min(availableForSelection - alreadyInCart, q + 1))}
+                disabled={!resolvedVariant || qty >= availableForSelection - alreadyInCart}
+                className="w-8 h-8 rounded-md hover:bg-white flex items-center justify-center disabled:opacity-30"><Plus size={14} /></button>
+            </div>
+          </div>
+
+          <button onClick={() => { onAdd(product, resolvedVariant, qty); onClose(); }} disabled={!canAddMore}
+            className="w-full mt-4 py-3 bg-rose-900 text-white rounded-xl text-sm font-medium hover:bg-rose-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+            <Plus size={15} /> {!resolvedVariant ? 'Choose options above' : availableForSelection <= 0 ? 'Out of stock' : 'Add to cart'}
+          </button>
         </div>
       </div>
     </div>
@@ -53,8 +131,9 @@ function VariantPicker({ product, onClose, onPick }) {
 export default function OrderPage({ slug }) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [activeCat, setActiveCat] = useState('all');
+  const [search, setSearch] = useState('');
   const [cart, setCart] = useState([]); // { variantId, productId, name, price, size, color, qty, maxStock }
-  const [pickerProduct, setPickerProduct] = useState(null);
+  const [detailProduct, setDetailProduct] = useState(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [form, setForm] = useState({ customerName: '', customerPhone: '', note: '' });
@@ -111,23 +190,22 @@ export default function OrderPage({ slug }) {
   const total = useMemo(() => cart.reduce((s, it) => s + it.price * it.qty, 0), [cart]);
   const itemCount = useMemo(() => cart.reduce((s, it) => s + it.qty, 0), [cart]);
 
-  const addToCart = (product, variant) => {
+  const cartQtyFor = (variantId) => cart.find((it) => it.variantId === variantId)?.qty || 0;
+  const addToCart = (product, variant, addQty = 1) => {
+    if (!variant) return;
     setCart((prev) => {
       const existing = prev.find((it) => it.variantId === variant.id);
       if (existing) {
-        if (existing.qty >= variant.stock) return prev;
-        return prev.map((it) => it.variantId === variant.id ? { ...it, qty: it.qty + 1 } : it);
+        return prev.map((it) => it.variantId === variant.id
+          ? { ...it, qty: Math.min(variant.stock, it.qty + addQty) }
+          : it);
       }
       return [...prev, {
         variantId: variant.id, productId: product.id, name: product.name,
         price: product.price, size: variant.size, color: variant.color,
-        qty: 1, maxStock: variant.stock,
+        qty: Math.min(variant.stock, addQty), maxStock: variant.stock,
       }];
     });
-  };
-  const handleAddClick = (product) => {
-    if (product.variants.length === 1) addToCart(product, product.variants[0]);
-    else setPickerProduct(product);
   };
   const changeQty = (variantId, delta) => {
     setCart((prev) => prev
@@ -274,7 +352,10 @@ export default function OrderPage({ slug }) {
 
   const { shopName, address, phone, paymentNumber, paymentInstructions, products } = state.data;
   const categories = ['all', ...Array.from(new Set(products.map((p) => p.category)))];
-  const filtered = activeCat === 'all' ? products : products.filter((p) => p.category === activeCat);
+  const q = search.trim().toLowerCase();
+  const filtered = products
+    .filter((p) => activeCat === 'all' || p.category === activeCat)
+    .filter((p) => !q || p.name.toLowerCase().includes(q));
 
   return (
     <div className="min-h-screen bg-stone-50 pb-24">
@@ -286,6 +367,11 @@ export default function OrderPage({ slug }) {
             {phone && <span className="flex items-center gap-1"><Phone size={12} /> {phone}</span>}
           </div>
           <p className="text-xs text-stone-400 mt-2">Pick what you want below, then pay by mobile money at checkout — the shop confirms your order once they've received it.</p>
+          <div className="relative mt-3">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search products…"
+              className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-rose-600 focus:bg-white" />
+          </div>
         </div>
       </div>
 
@@ -302,35 +388,45 @@ export default function OrderPage({ slug }) {
 
       <div className="max-w-4xl mx-auto p-4 sm:p-6">
         {filtered.length === 0 ? (
-          <div className="text-center text-sm text-stone-400 py-16">Nothing in stock right now — check back soon.</div>
+          <div className="text-center text-sm text-stone-400 py-16">
+            {q ? `Nothing matches "${search}".` : 'Nothing in stock right now — check back soon.'}
+          </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
             {filtered.map((p) => {
               const totalStock = p.variants.reduce((s, v) => s + v.stock, 0);
               const inCart = cart.filter((it) => it.productId === p.id).reduce((s, it) => s + it.qty, 0);
+              const sizeCount = new Set(p.variants.map((v) => v.size).filter(Boolean)).size;
+              const colorCount = new Set(p.variants.map((v) => v.color).filter(Boolean)).size;
               return (
-                <div key={p.id} className="bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col">
+                <button key={p.id} onClick={() => setDetailProduct(p)} disabled={totalStock <= 0}
+                  className="bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col text-left hover:border-rose-300 hover:shadow-sm transition-all disabled:opacity-50">
                   <div className="aspect-square bg-stone-100 flex items-center justify-center text-4xl overflow-hidden">
                     {p.image ? <img src={imageUrl(p.image)} alt={p.name} loading="lazy" decoding="async" className="w-full h-full object-cover" /> : (p.emoji || <Package size={28} className="text-stone-300" />)}
                   </div>
                   <div className="p-3 flex-1 flex flex-col">
                     <div className="text-sm font-medium text-stone-900 leading-snug">{p.name}</div>
                     <div className="text-sm font-semibold text-rose-900 mt-1" style={{ fontFamily: "'Fraunces', serif" }}>{fmt(p.price)}</div>
-                    <button onClick={() => handleAddClick(p)} disabled={totalStock <= 0}
-                      className="mt-auto pt-3 w-full py-1.5 rounded-lg bg-rose-900 text-white text-xs font-medium hover:bg-rose-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
-                      <Plus size={13} /> {inCart > 0 ? `Add (${inCart} in cart)` : 'Add to cart'}
-                    </button>
+                    {(sizeCount > 1 || colorCount > 1) && (
+                      <div className="text-[11px] text-stone-400 mt-0.5">
+                        {sizeCount > 1 ? `${sizeCount} sizes` : ''}{sizeCount > 1 && colorCount > 1 ? ' · ' : ''}{colorCount > 1 ? `${colorCount} colors` : ''}
+                      </div>
+                    )}
+                    <div className="mt-auto pt-2 text-xs font-medium text-rose-700 flex items-center gap-1">
+                      {totalStock <= 0 ? <span className="text-stone-400">Out of stock</span>
+                        : inCart > 0 ? `${inCart} in cart — tap to add more` : 'Tap to choose options'}
+                    </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
         )}
       </div>
 
-      {pickerProduct && (
-        <VariantPicker product={pickerProduct} onClose={() => setPickerProduct(null)}
-          onPick={(v) => { addToCart(pickerProduct, v); setPickerProduct(null); }} />
+      {detailProduct && (
+        <ProductDetailModal product={detailProduct} cartQtyFor={cartQtyFor}
+          onClose={() => setDetailProduct(null)} onAdd={addToCart} />
       )}
 
       {/* Floating cart bar */}
