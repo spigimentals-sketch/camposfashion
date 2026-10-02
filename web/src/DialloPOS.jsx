@@ -2522,6 +2522,7 @@ const ProductsPanel = () => {
   const [editingCost, setEditingCost] = useState(null); // { id, value }
   const [editingPrice, setEditingPrice] = useState(null); // { id, value }
   const [editingPacket, setEditingPacket] = useState(null); // { id, price, units }
+  const [editingStock, setEditingStock] = useState(null); // { id, value }
   // Memoized: without this, every product in the catalog got re-filtered
   // and re-sorted on every render — including ones that have nothing to do
   // with search/sort, like typing into an inline cost/price edit field, or
@@ -2599,6 +2600,20 @@ const ProductsPanel = () => {
       const updated = await api.updateProduct(p.id, { ...p, price: newPrice });
       patch('products', list => list.map(x => x.id === p.id ? updated : x));
     } catch (e) { toast(e.message || 'Failed to save price', 'error'); }
+  };
+  // Only safe to edit inline for a single-variant product — with more than
+  // one size/color, "stock" isn't one number, so that case is left to Edit
+  // Product's full variants table instead. Writes straight to that one
+  // variant's stock (same field Add/Edit Product's Quantity field uses),
+  // keeping every other variant and field on the product untouched.
+  const saveStock = async (p, rawValue) => {
+    const newStock = parseInt(rawValue, 10);
+    setEditingStock(null);
+    if (isNaN(newStock) || newStock < 0 || newStock === p.stock) return;
+    try {
+      const updated = await api.updateProduct(p.id, { ...p, variants: (p.variants || []).map((v, i) => i === 0 ? { ...v, stock: newStock } : v) });
+      patch('products', list => list.map(x => x.id === p.id ? updated : x));
+    } catch (e) { toast(e.message || 'Failed to save stock', 'error'); }
   };
   const savePacket = async (p, rawPrice, rawUnits) => {
     const newPacketPrice = parseFloat(rawPrice) || 0;
@@ -2877,12 +2892,34 @@ const ProductsPanel = () => {
                     )}
                   </td>
                   <td className="px-3 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-stone-900">{p.stock}</span>
-                      <div className="w-16 h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${lowStock ? 'bg-amber-500' : 'bg-emerald-600'}`} style={{ width: `${Math.min(100, (p.stock / 100) * 100)}%` }} />
-                      </div>
-                    </div>
+                    {(() => {
+                      const singleVariant = (p.variants || []).length <= 1;
+                      const editable = can.editInventory && singleVariant;
+                      return editable && editingStock?.id === p.id ? (
+                        <input
+                          type="number"
+                          autoFocus
+                          defaultValue={editingStock.value}
+                          onBlur={e => saveStock(p, e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') e.target.blur();
+                            if (e.key === 'Escape') setEditingStock(null);
+                          }}
+                          className="w-20 px-2 py-1 text-sm border border-emerald-400 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-emerald-50"
+                        />
+                      ) : (
+                        <button
+                          onClick={() => editable && setEditingStock({ id: p.id, value: p.stock || 0 })}
+                          title={!can.editInventory ? undefined : singleVariant ? 'Click to edit stock' : 'This product has multiple size/color variants — edit stock per variant in Edit Product'}
+                          className={`flex items-center gap-2 ${editable ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+                        >
+                          <span className="text-sm font-medium text-stone-900 underline-offset-2 decoration-dashed">{p.stock}</span>
+                          <div className="w-16 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${lowStock ? 'bg-amber-500' : 'bg-emerald-600'}`} style={{ width: `${Math.min(100, (p.stock / 100) * 100)}%` }} />
+                          </div>
+                        </button>
+                      );
+                    })()}
                   </td>
                   <td className="px-3 py-3">
                     {lowStock ? (
