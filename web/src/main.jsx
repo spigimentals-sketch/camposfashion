@@ -5,6 +5,7 @@ import DialloPOS from './DialloPOS.jsx';
 import CustomerDisplay from './CustomerDisplay.jsx';
 import AdminApp from './AdminApp.jsx';
 import CatalogPage from './CatalogPage.jsx';
+import OrderPage from './OrderPage.jsx';
 
 // A second browser window opened with ?display=customer (see
 // customerDisplay.js) gets the bare customer-facing cart view instead of
@@ -18,10 +19,14 @@ const isAdminPanel = window.location.pathname.replace(/\/+$/, '') === '/admin';
 // /catalog/:slug is a shop's public product catalog — no login at all, a
 // third separate root, see CatalogPage.jsx.
 const catalogMatch = window.location.pathname.match(/^\/catalog\/([^/]+)\/?$/);
+// /order/:slug is a shop's public self-service ordering page — no login,
+// a fourth separate root, see OrderPage.jsx.
+const orderMatch = window.location.pathname.match(/^\/order\/([^/]+)\/?$/);
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     {catalogMatch ? <CatalogPage slug={catalogMatch[1]} />
+      : orderMatch ? <OrderPage slug={orderMatch[1]} />
       : isAdminPanel ? <AdminApp />
       : isCustomerDisplay ? <CustomerDisplay />
       : <DialloPOS />}

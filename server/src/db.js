@@ -630,6 +630,32 @@ CREATE TABLE IF NOT EXISTS return_requests (
 );
 `);
 
+// A customer's self-service online order (public ordering page, see
+// routes/onlineOrder.js) — items + reserved stock exist from the moment
+// it's submitted, but it isn't a real sale (no orders/order_items row)
+// until a cashier/manager confirms the mobile money was actually
+// received. `items` snapshots name/price/sku/size/color/variantId/qty at
+// submission time, same pattern as return_requests. Stock is decremented
+// (reserved) at submission and either stays spent (confirm — an orders
+// row is created pointing at it via orderId) or is given back (reject),
+// never double-counted against store_stock either way.
+db.exec(`
+CREATE TABLE IF NOT EXISTS online_orders (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  customerName  TEXT    NOT NULL,
+  customerPhone TEXT    NOT NULL,
+  items         TEXT    NOT NULL,
+  subtotal      INTEGER NOT NULL,
+  storeId       INTEGER NOT NULL,
+  note          TEXT,
+  status        TEXT    NOT NULL DEFAULT 'pending',
+  orderId       INTEGER,
+  createdAt     TEXT    NOT NULL,
+  resolvedAt    TEXT,
+  resolvedBy    TEXT
+);
+`);
+
 // Safety net for existing shop databases: make sure every user can log in
 // (moved here from the old boot-time script in index.js — now runs once per
 // shop file, the first time it's opened, instead of once globally).

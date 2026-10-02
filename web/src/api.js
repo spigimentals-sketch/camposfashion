@@ -163,6 +163,10 @@ export const api = {
   getPendingReturnRequests: () => req('GET', '/return-requests/pending'),
   approveReturnRequest: (id) => req('PUT', `/return-requests/${id}/approve`),
   rejectReturnRequest: (id, note) => req('PUT', `/return-requests/${id}/reject`, { note }),
+  // online orders (customer self-service ordering page, payment confirmed by staff)
+  getOnlineOrders: () => req('GET', '/online-orders'),
+  confirmOnlineOrder: (id) => req('PUT', `/online-orders/${id}/confirm`),
+  rejectOnlineOrder: (id, note) => req('PUT', `/online-orders/${id}/reject`, { note }),
 };
 
 export default api;

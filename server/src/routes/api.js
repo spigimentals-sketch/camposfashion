@@ -1127,6 +1127,74 @@ r.put('/return-requests/:id/reject', requireAuth, requireRole('admin', 'manager'
   res.json({ id: row.id, status: 'rejected', resolvedAt: now, note });
 }));
 
+// ---------------- ONLINE ORDERS ----------------
+// Submitted via the public ordering page (routes/onlineOrder.js) with
+// stock already reserved (decremented) at submission time. Confirming
+// creates the real sale (orders/order_items) without touching stock
+// again — it was already spent; rejecting gives the reserved stock back.
+// Visible to the same roles that can run a till (admin/manager/cashier) —
+// an accountant sees financial history but isn't the one who should be
+// deciding whether a mobile money payment actually landed.
+r.get('/online-orders', requireAuth, h((req, res) => {
+  res.json(db.prepare('SELECT * FROM online_orders ORDER BY createdAt DESC LIMIT 200').all());
+}));
+
+r.put('/online-orders/:id/confirm', requireAuth, requireRole('admin', 'manager', 'cashier'), h((req, res) => {
+  const row = db.prepare('SELECT * FROM online_orders WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  if (row.status !== 'pending') return res.json({ id: row.id, status: row.status });
+  const items = JSON.parse(row.items);
+  const now = new Date().toISOString();
+  const resolvedBy = req.user.name || req.user.username;
+  const invoiceNo = `INV-${new Date(now).getUTCFullYear()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+  const costOf = db.prepare('SELECT cost FROM products WHERE id=?');
+
+  const orderId = db.transaction(() => {
+    const orderInfo = db.prepare(
+      'INSERT INTO orders (invoiceNo,customerId,subtotal,discount,tva,total,method,cashier,createdAt,storeId,manualEntry) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(invoiceNo, null, row.subtotal, 0, 0, row.subtotal, 'mobile', resolvedBy, now, row.storeId, 0);
+    const newOrderId = orderInfo.lastInsertRowid;
+    const itemIns = db.prepare(
+      'INSERT INTO order_items (orderId,productId,name,sku,price,cost,qty,mode,unitsPerPacket,variantId,size,color,variantSku) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    );
+    items.forEach((it) => {
+      const unitCost = it.productId ? (costOf.get(it.productId)?.cost || 0) : 0;
+      itemIns.run(newOrderId, it.productId, it.name, it.sku, it.price, unitCost, it.qty, 'unit', null, it.variantId || null, it.size || null, it.color || null, it.sku || null);
+    });
+    db.prepare("UPDATE online_orders SET status='confirmed',orderId=?,resolvedAt=?,resolvedBy=? WHERE id=?").run(newOrderId, now, resolvedBy, row.id);
+    return newOrderId;
+  })();
+
+  res.json({ id: row.id, status: 'confirmed', orderId, resolvedAt: now });
+}));
+
+r.put('/online-orders/:id/reject', requireAuth, requireRole('admin', 'manager', 'cashier'), h((req, res) => {
+  const { note } = req.body || {};
+  const row = db.prepare('SELECT * FROM online_orders WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  if (row.status !== 'pending') return res.json({ id: row.id, status: row.status });
+  const items = JSON.parse(row.items);
+  const now = new Date().toISOString();
+  const resolvedBy = req.user.name || req.user.username;
+
+  db.transaction(() => {
+    const ensureRow = db.prepare('INSERT OR IGNORE INTO store_stock (storeId, variantId, stock) VALUES (?, ?, 0)');
+    const restock = db.prepare('UPDATE store_stock SET stock = stock + ? WHERE storeId=? AND variantId=?');
+    const moveIns = db.prepare('INSERT INTO stock_movements (productName,type,qty,source,date,user,productId,variantId,storeId) VALUES (?,?,?,?,?,?,?,?,?)');
+    const dateStr = now.slice(0, 16).replace('T', ' ');
+    items.forEach((it) => {
+      ensureRow.run(row.storeId, it.variantId);
+      restock.run(it.qty, row.storeId, it.variantId);
+      recomputeStock(it.variantId, it.productId);
+      const label = [it.name, [it.size, it.color].filter(Boolean).join(' / ')].filter(Boolean).join(' — ');
+      moveIns.run(label, 'in', it.qty, `ONLINE-rejected-${row.id}`, dateStr, resolvedBy, it.productId, it.variantId, row.storeId);
+    });
+    db.prepare("UPDATE online_orders SET status='rejected',note=?,resolvedAt=?,resolvedBy=? WHERE id=?").run(note || null, now, resolvedBy, row.id);
+  })();
+
+  res.json({ id: row.id, status: 'rejected', resolvedAt: now });
+}));
+
 // ---------------- TENANT INFO ----------------
 // Which shop this is, from its own point of view. Not sensitive (just the
 // slug/name), no requireAuth needed beyond tenantResolve already having run

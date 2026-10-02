@@ -211,6 +211,7 @@ const DEFAULT_SETTINGS = {
   paperWidth: '80', showLogo: true, showQR: true,
   taxIdPrint: true, acceptCash: true, acceptCard: true, acceptMobile: true, lowStockThreshold: '10',
   dailySummary: true, weeklySummary: true, paymentAlerts: true,
+  onlineOrderingEnabled: false, paymentNumber: '', paymentInstructions: '',
 };
 
 export function seedIfEmpty() {
@@ -315,6 +316,7 @@ export function seedBlankTenant(db, { shopName, ownerName, ownerUsername, ownerP
       dailySummary: true, weeklySummary: true, paymentAlerts: true,
       multiStore: false,
       catalogEnabled: false,
+      onlineOrderingEnabled: false, paymentNumber: '', paymentInstructions: '',
     };
     db.prepare('INSERT OR IGNORE INTO settings (id,json) VALUES (1,?)').run(JSON.stringify(settings));
   });

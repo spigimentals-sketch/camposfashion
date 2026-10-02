@@ -7,6 +7,7 @@ import './platformDb.js'; // side-effect: opens platform.db, creates the tenants
 import platformRouter from './routes/platform.js';
 import adminRouter from './routes/admin.js';
 import catalogRouter from './routes/catalog.js';
+import onlineOrderRouter from './routes/onlineOrder.js';
 import { tenantResolve } from './middleware/tenantResolve.js';
 import api from './routes/api.js';
 
@@ -37,6 +38,11 @@ app.use('/api', adminRouter);
 // The public shop catalog — no login at all, resolves a shop by slug
 // straight from the URL rather than a token (see routes/catalog.js).
 app.use('/api', catalogRouter);
+
+// The public self-service ordering page — same no-login, slug-based
+// resolution as the catalog, but can actually take an order (see
+// routes/onlineOrder.js for how that stays safe without a login).
+app.use('/api', onlineOrderRouter);
 
 // Every other /api/* route needs a shop resolved first (see tenantResolve.js).
 app.use('/api', tenantResolve, api);

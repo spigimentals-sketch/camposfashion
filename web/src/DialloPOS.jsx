@@ -14,7 +14,7 @@ import {
 import { getTenantToken } from './api.js';
 import {
   ShoppingCart, Package, Users, BarChart3, Settings,
-  Search, Scan, Plus, Minus, X, CreditCard, Banknote,
+  Search, Scan, Plus, Minus, X, CreditCard, Banknote, Smartphone,
   Bell, TrendingUp, AlertTriangle, CheckCircle2,
   Receipt, FileText, ChevronRight, Download,
   Apple, Beef, Milk, Cookie, Wine, Sparkles, Coffee, Wheat,
@@ -279,13 +279,13 @@ const useShifts = () => useContext(ShiftContext);
 // ("Add product" / "Scan to add"), so a manager can still fix stock counts or correct an
 // existing listing without being the one who adds new catalog items.
 const ROLE_ACCESS = {
-  admin:   { home: true, pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: true, expenses: true, manualSale: true,
+  admin:   { home: true, pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: true, expenses: true, manualSale: true, onlineOrders: true,
              seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, addProducts: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false, admin: true },
-  manager: { home: true, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true, manualSale: true,
+  manager: { home: true, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true, manualSale: true, onlineOrders: true,
              seeCost: false, seeFinance: false, seeUsers: false, editInventory: true, addProducts: false, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
-  cashier: { home: true, pos: true, dashboard: false, inventory: false, customers: false, reports: false, shifts: true, settings: false, expenses: false, manualSale: false,
+  cashier: { home: true, pos: true, dashboard: false, inventory: false, customers: false, reports: false, shifts: true, settings: false, expenses: false, manualSale: false, onlineOrders: true,
              seeCost: false, seeFinance: false, seeUsers: false, editInventory: false, addProducts: false, seeCustomerPII: false, seeAllShifts: false, readOnly: false },
-  accountant: { home: false, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true, manualSale: false,
+  accountant: { home: false, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true, manualSale: false, onlineOrders: false,
              seeCost: true, seeFinance: true, seeUsers: false, editInventory: false, addProducts: false, seeCustomerPII: true, seeAllShifts: true, readOnly: true },
 };
 const RoleContext = createContext(null);
@@ -1125,6 +1125,7 @@ const NAV_STYLE = {
   reports:    { gradient: 'from-amber-400 to-orange-600', icon: FileText },
   expenses:   { gradient: 'from-orange-400 to-red-600',   icon: Receipt },
   manualSale: { gradient: 'from-teal-400 to-cyan-700',    icon: ClipboardList },
+  onlineOrders: { gradient: 'from-cyan-500 to-blue-700',  icon: Smartphone },
   shifts:     { gradient: 'from-slate-500 to-slate-700',  icon: Clock },
   settings:   { gradient: 'from-stone-600 to-stone-800',  icon: Settings },
 };
@@ -1145,6 +1146,7 @@ const HomeView = ({ onNavigate }) => {
     { id: 'reports', label: t('reports') },
     { id: 'expenses', label: t('expenses') || 'Expenses' },
     { id: 'manualSale', label: t('manualSale') || 'Record Sale' },
+    { id: 'onlineOrders', label: 'Online Orders' },
     { id: 'shifts', label: t('shifts') || 'Shifts' },
     { id: 'settings', label: t('settings') },
   ].filter(item => can[item.id] && (item.id !== 'shifts' || !onHandheld));
@@ -4863,6 +4865,9 @@ const SettingsView = () => {
     multiStore: false,
     catalogEnabled: false,
     useVariants: true,
+    onlineOrderingEnabled: false,
+    paymentNumber: '',
+    paymentInstructions: '',
   });
   const update = (k) => (v) => setSettings(prev => ({ ...prev, [k]: v }));
   // Fetched once, regardless of the toggle, so the shareable link is ready
@@ -4870,6 +4875,7 @@ const SettingsView = () => {
   const [tenantSlug, setTenantSlug] = useState(null);
   useEffect(() => { api.getTenantInfo().then(({ slug }) => setTenantSlug(slug)).catch(() => {}); }, []);
   const catalogUrl = tenantSlug ? `${window.location.origin}/catalog/${tenantSlug}` : null;
+  const orderUrl = tenantSlug ? `${window.location.origin}/order/${tenantSlug}` : null;
 
   const { online, settings: liveSettings, users: liveUsers, refresh, patch } = useData();
   const { toast } = useToast();
@@ -5055,6 +5061,43 @@ const SettingsView = () => {
                           Copy
                         </button>
                         <a href={catalogUrl} target="_blank" rel="noreferrer"
+                          className="px-3 py-2 border border-stone-200 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-50 flex-shrink-0">
+                          Preview
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-stone-400">Loading link…</div>
+                    )}
+                    <div className="text-[11px] text-stone-400 mt-2">
+                      Remember to click <span className="font-medium">Save changes</span> below for this to take effect.
+                    </div>
+                  </div>
+                )}
+              </SettingsCard>
+              <SettingsCard title="Online ordering" desc="A shareable link where customers pick items themselves, then pay by sending mobile money to the number below. Nothing is sold until a cashier/manager confirms the money actually arrived — see the new Online Orders section.">
+                <SettingsField label="Enable online ordering" hint="Off by default — turn on once your payment number is filled in below">
+                  <Toggle checked={settings.onlineOrderingEnabled} onChange={update('onlineOrderingEnabled')} />
+                </SettingsField>
+                <SettingsField label="Payment number" hint="Shown to the customer at checkout — e.g. your MTN/Orange Money number">
+                  <TextInput value={settings.paymentNumber} onChange={update('paymentNumber')} placeholder="+237 6 77 00 00 00" />
+                </SettingsField>
+                <SettingsField label="Payment instructions (optional)" hint="Extra text shown alongside the number — e.g. the name to send to, or which network">
+                  <textarea value={settings.paymentInstructions} onChange={(e) => update('paymentInstructions')(e.target.value)} rows={2}
+                    placeholder="e.g. MTN Mobile Money, name: Riskyc Fashion"
+                    className="w-full px-3 py-2 bg-white border border-stone-200 rounded-lg text-sm focus:outline-none focus:border-rose-600 focus:ring-2 focus:ring-rose-100" />
+                </SettingsField>
+                {settings.onlineOrderingEnabled && (
+                  <div className="pt-3.5">
+                    <div className="text-xs font-medium text-stone-600 mb-1.5">Your ordering link</div>
+                    {orderUrl ? (
+                      <div className="flex items-center gap-2">
+                        <input readOnly value={orderUrl}
+                          className="flex-1 px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-xs text-stone-700 font-mono" />
+                        <button onClick={() => { navigator.clipboard?.writeText(orderUrl); toast('Link copied'); }}
+                          className="px-3 py-2 bg-rose-900 text-white rounded-lg text-xs font-medium hover:bg-rose-800 flex-shrink-0">
+                          Copy
+                        </button>
+                        <a href={orderUrl} target="_blank" rel="noreferrer"
                           className="px-3 py-2 border border-stone-200 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-50 flex-shrink-0">
                           Preview
                         </a>
@@ -5921,6 +5964,7 @@ export default function DialloPOS() {
     reports: { title: t('reports'), sub: t('sub_reports') },
     expenses: { title: t('expenses') || 'Expenses', sub: 'Record and review business expenses' },
     manualSale: { title: t('manualSale') || 'Record Sale', sub: 'Enter a sale that was written down on paper before it reached the system' },
+    onlineOrders: { title: 'Online Orders', sub: 'Confirm payment for orders customers placed on your ordering link' },
     settings: { title: t('settings'), sub: t('sub_settings') },
     shifts: { title: t('shifts') || 'Shifts', sub: t('sub_shifts') || 'Track employee clock-in and clock-out' },
   };
@@ -6426,6 +6470,142 @@ const ManualSaleView = () => {
   );
 };
 
+// ============ ONLINE ORDERS ============
+// Confirm/reject queue for orders placed through the public ordering page
+// (/order/:slug, routes/onlineOrder.js). A pending row already has stock
+// reserved — confirming turns it into a real sale (orders/order_items);
+// rejecting gives that stock back. No stock math happens here client-side;
+// the server does all of it atomically on confirm/reject.
+const OnlineOrdersView = () => {
+  const { online } = useData();
+  const { toast } = useToast();
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState('pending');
+  const [busyId, setBusyId] = useState(null);
+
+  const load = async () => {
+    if (!online) return;
+    setLoading(true);
+    try { setOrders(await api.getOnlineOrders()); }
+    catch (e) { toast(e.message, 'error'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, [online]); // eslint-disable-line
+  // Light polling so a new order placed while this screen is open shows up
+  // without a manual refresh — not time-critical like the discount/return
+  // watchers (nothing here is blocking a cashier mid-checkout), so a longer
+  // interval is fine.
+  useEffect(() => {
+    if (!online) return;
+    const id = setInterval(load, 20000);
+    return () => clearInterval(id);
+  }, [online]); // eslint-disable-line
+
+  const visible = filter === 'all' ? orders : orders.filter(o => o.status === filter);
+  const pendingCount = orders.filter(o => o.status === 'pending').length;
+
+  const confirm = async (o) => {
+    if (!window.confirm(`Confirm you've received ${fmt(o.subtotal)} from ${o.customerName}? This records the sale and cannot be undone.`)) return;
+    setBusyId(o.id);
+    try {
+      await api.confirmOnlineOrder(o.id);
+      toast('Order confirmed — recorded as a sale');
+      load();
+    } catch (e) { toast(e.message || 'Could not confirm order', 'error'); }
+    finally { setBusyId(null); }
+  };
+  const reject = async (o) => {
+    if (!window.confirm(`Reject this order from ${o.customerName}? Reserved stock will be given back.`)) return;
+    setBusyId(o.id);
+    try {
+      await api.rejectOnlineOrder(o.id);
+      toast('Order rejected — stock restored');
+      load();
+    } catch (e) { toast(e.message || 'Could not reject order', 'error'); }
+    finally { setBusyId(null); }
+  };
+
+  const statusBadge = (status) => {
+    if (status === 'pending') return <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 text-[10px] font-medium rounded-md">Awaiting payment confirmation</span>;
+    if (status === 'confirmed') return <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-800 text-[10px] font-medium rounded-md">Confirmed</span>;
+    return <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-stone-100 text-stone-600 text-[10px] font-medium rounded-md">Rejected</span>;
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-stone-50/30 p-5 md:p-7">
+      {pendingCount > 0 && (
+        <div className="rounded-2xl p-4 border border-amber-200 bg-amber-50 mb-5 flex items-center gap-2 text-amber-900 text-sm">
+          <AlertTriangle size={16} className="flex-shrink-0" />
+          {pendingCount} order{pendingCount === 1 ? '' : 's'} waiting on payment confirmation
+        </div>
+      )}
+      <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+        <div className="p-5 border-b border-stone-200/80 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h3 className="font-semibold text-stone-900">Online orders</h3>
+            <p className="text-xs text-stone-500 mt-0.5">Placed by customers through your ordering link — confirm only once you've actually seen the payment land.</p>
+          </div>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} className="text-xs px-2.5 py-1.5 border border-stone-200 rounded-lg">
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="rejected">Rejected</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+        <div className="divide-y divide-stone-100">
+          {visible.length === 0 ? (
+            <div className="px-5 py-10 text-center text-stone-400 text-sm">{loading ? 'Loading…' : 'Nothing here.'}</div>
+          ) : visible.map((o) => {
+            const items = JSON.parse(o.items || '[]');
+            return (
+              <div key={o.id} className="p-5 flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-stone-900">{o.customerName}</span>
+                    {statusBadge(o.status)}
+                  </div>
+                  <div className="text-xs text-stone-500">{o.customerPhone} · {new Date(o.createdAt).toLocaleString()}</div>
+                  <div className="text-xs text-stone-600 mt-2 space-y-0.5">
+                    {items.map((it, i) => (
+                      <div key={i}>
+                        {it.qty} × {it.name}{(it.size || it.color) ? ` (${[it.size, it.color].filter(Boolean).join(' / ')})` : ''}
+                        <span className="text-stone-400"> — {fmt(it.price * it.qty)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {o.note && <div className="text-xs text-stone-400 mt-1.5 italic">"{o.note}"</div>}
+                  {o.status === 'confirmed' && o.resolvedBy && (
+                    <div className="text-[11px] text-stone-400 mt-1.5">Confirmed by {o.resolvedBy}</div>
+                  )}
+                  {o.status === 'rejected' && o.resolvedBy && (
+                    <div className="text-[11px] text-stone-400 mt-1.5">Rejected by {o.resolvedBy}</div>
+                  )}
+                </div>
+                <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                  <div className="font-serif text-xl text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(o.subtotal)}</div>
+                  {o.status === 'pending' && (
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => reject(o)} disabled={busyId === o.id}
+                        className="px-3 py-1.5 text-xs font-medium text-stone-600 border border-stone-200 rounded-lg hover:bg-stone-50 disabled:opacity-50">
+                        Reject
+                      </button>
+                      <button onClick={() => confirm(o)} disabled={busyId === o.id}
+                        className="px-3 py-1.5 text-xs font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 disabled:opacity-50">
+                        {busyId === o.id ? 'Confirming…' : 'Confirm payment'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function DialloPOSShell({ titles }) {
   const { can } = useRole();
   const { lang } = useT();
@@ -6490,6 +6670,7 @@ function DialloPOSShell({ titles }) {
         {view === 'reports' && guarded('reports', 'Reports', ReportsView)}
         {view === 'expenses' && guarded('expenses', 'Expenses', ExpensesView)}
         {view === 'manualSale' && guarded('manualSale', 'Record Sale', ManualSaleView)}
+        {view === 'onlineOrders' && guarded('onlineOrders', 'Online Orders', OnlineOrdersView)}
         {view === 'settings' && guarded('settings', 'Settings & Users', SettingsView)}
         {view === 'shifts' && <ShiftsView />}
       </div>
