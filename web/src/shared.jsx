@@ -1330,7 +1330,7 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 // jsPDF-based like the other generated documents — drawn straight onto a
 // canvas instead and exported as a JPEG data URL. Height is computed from
 // the item count up front since canvas has no auto-flowing page.
-export function buildReceiptImage(data, settings = {}) {
+export function buildReceiptImage(data, settings = {}, format = 'jpeg') {
   const { items = [], subtotal = 0, discount = 0, pointsDiscountAmt = 0, creditUsed = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
   const width = 380;
   const margin = 20;
@@ -1467,5 +1467,5 @@ export function buildReceiptImage(data, settings = {}) {
   ctx.fillText(settings.receiptFooter || 'Thank you for your purchase', width - margin, y, footerW > 0 ? footerW : undefined);
   ctx.textAlign = 'left';
 
-  return canvas.toDataURL('image/jpeg', 0.92);
+  return format === 'png' ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92);
 }

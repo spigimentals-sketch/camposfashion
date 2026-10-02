@@ -856,14 +856,16 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
 
   // No paid WhatsApp Business API here, so there is no way to make a web
   // page silently deposit a file into someone's chat — that always needs a
-  // human in the loop somewhere. What changed: this used to open a wa.me
-  // link with a TEXT MESSAGE containing a URL (so the customer received a
-  // link, not an image). Now it hands the actual JPEG to the device's
-  // native share sheet (Web Share API, file sharing) — picking WhatsApp
-  // there attaches the real image to the chat, same as sharing a photo
-  // from the camera roll. Only the cashier's one tap (share → WhatsApp →
-  // contact → send) replaces what used to be two taps (open link → send);
-  // the customer now receives an actual image either way, never a link.
+  // human in the loop somewhere. Three tiers, each sending the real image
+  // bytes rather than a link, picked by what the cashier's device supports:
+  //  1. Web Share API with a File (phones, mainly Android Chrome) — picking
+  //     WhatsApp in the native share sheet attaches the real image.
+  //  2. Clipboard image write + open the exact WhatsApp Web/Desktop chat
+  //     (desktop browsers, which don't implement file sharing but do
+  //     support writing an image to the clipboard) — the cashier's only
+  //     remaining step is Ctrl+V into the already-open chat, no Save As
+  //     dialog and no manual file picker.
+  //  3. Plain download, only if neither of the above is supported at all.
   const sendViaWhatsApp = async () => {
     if (!customer?.phone) return;
     setWaPreparing(true);
@@ -874,16 +876,25 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
       const file = new File([blob], filename, { type: 'image/jpeg' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], text: `Receipt for ${customer.name || 'your purchase'} — ${fmt(total)}` });
-      } else {
-        // Desktop/unsupported browser: no file-sharing API available, so
-        // the closest thing to "send the image" is handing it to the
-        // cashier to attach themselves — download it instead of a link.
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = filename;
-        a.click();
-        toast("This device can't share directly to WhatsApp — receipt image downloaded, attach it in WhatsApp yourself", 'info');
+        return;
       }
+      if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+        try {
+          const pngDataUrl = buildReceiptImage(data, settings || {}, 'png');
+          const pngBlob = await (await fetch(pngDataUrl)).blob();
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+          window.open(`https://wa.me/${normalizePhone(customer.phone)}`, '_blank');
+          toast('Receipt image copied — paste it (Ctrl+V) into the chat that just opened', 'info');
+          return;
+        } catch { /* fall through to download */ }
+      }
+      // Nothing above is supported on this device — download is the only
+      // option left, and the cashier still has to attach it themselves.
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = filename;
+      a.click();
+      toast("This device can't share or copy images — receipt image downloaded, attach it in WhatsApp yourself", 'info');
     } catch (e) {
       if (e.name !== 'AbortError') toast(e.message || 'Could not share the receipt', 'error');
     } finally {
