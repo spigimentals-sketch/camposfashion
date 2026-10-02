@@ -11,11 +11,12 @@
 // DialloPOS.jsx). The customer is told that plainly before they submit.
 import React, { useState, useEffect, useMemo } from 'react';
 import { MapPin, Phone, Package, ShoppingCart, Plus, Minus, X, CheckCircle2, AlertTriangle, Clock, Download, Search } from 'lucide-react';
-// buildReceiptPdf is a pure PDF-builder with no network/token logic of its
-// own — safe to import from shared.jsx without pulling in any of api.js's
-// token handling into this page, which still only ever talks to the server
-// via its own plain `fetch` calls below, never api.js's request helper.
-import { buildReceiptPdf } from './shared.jsx';
+// buildReceiptImage is a pure canvas-drawing function with no network/token
+// logic of its own — safe to import from shared.jsx without pulling in any
+// of api.js's token handling into this page, which still only ever talks
+// to the server via its own plain `fetch` calls below, never api.js's
+// request helper.
+import { buildReceiptImage } from './shared.jsx';
 
 const BASE = import.meta.env.VITE_API_URL || '';
 const fmt = (n) => new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' FCFA';
@@ -172,16 +173,19 @@ export default function OrderPage({ slug }) {
   };
   useEffect(() => { if (trackId) loadTracked(trackId); }, [trackId]); // eslint-disable-line
 
-  const downloadReceipt = async () => {
+  const downloadReceipt = () => {
     const o = tracked.data;
     if (!o) return;
     setDownloadingReceipt(true);
     try {
-      const doc = await buildReceiptPdf({
+      const dataUrl = buildReceiptImage({
         items: o.items, subtotal: o.subtotal, total: o.subtotal,
         customer: { name: o.customerName }, method: 'mobile', invoiceNo: `ORD-${o.id}`,
       }, { businessName: o.shopName, address: o.address, phone: o.phone });
-      doc.save(`receipt-ORD-${o.id}.pdf`);
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `receipt-ORD-${o.id}.jpg`;
+      a.click();
     } finally {
       setDownloadingReceipt(false);
     }

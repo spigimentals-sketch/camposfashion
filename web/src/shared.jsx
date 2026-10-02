@@ -1311,96 +1311,161 @@ export function finishLetterheadPdf(doc, { settings = {} } = {}) {
   }
 }
 
-// A PDF version of a receipt — used for the in-store "Send via WhatsApp"
-// action and the public ordering page's self-service receipt download.
-// Same letterhead as every other generated document, but no signature
-// block (finishLetterheadPdf's is meant for payslips/notices, not a sales
-// receipt handed to a customer), just a plain page-footer instead.
-export async function buildReceiptPdf(data, settings) {
-  const { doc, margin, startY } = await createLetterheadPdf({ docTitle: 'Receipt', settings });
-  const pageWidth = doc.internal.pageSize.getWidth();
+// Draws a rounded rectangle path (Canvas has no built-in roundRect in every
+// supported browser) — used for the receipt image's logo mark.
+function roundedRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// A JPEG image of a receipt (not a PDF) — used for the in-store "Send via
+// WhatsApp" action and the public ordering page's self-service receipt
+// download. An image previews inline right in a WhatsApp chat; a PDF just
+// shows as a file someone has to tap to open, which is why this isn't
+// jsPDF-based like the other generated documents — drawn straight onto a
+// canvas instead and exported as a JPEG data URL. Height is computed from
+// the item count up front since canvas has no auto-flowing page.
+export function buildReceiptImage(data, settings = {}) {
   const { items = [], subtotal = 0, discount = 0, pointsDiscountAmt = 0, creditUsed = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
-  let y = startY;
-
-  doc.setTextColor(28, 25, 23);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text(`Invoice: ${invoiceNo || '—'}`, margin, y);
-  doc.text(new Date().toLocaleString(), pageWidth - margin, y, { align: 'right' });
-  y += 16;
-  doc.text(`Customer: ${customer?.name || 'Walk-in'}`, margin, y);
-  y += 24;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.setTextColor(120, 113, 108);
-  doc.text('ITEM', margin, y);
-  doc.text('TOTAL', pageWidth - margin, y, { align: 'right' });
-  y += 8;
-  doc.setDrawColor(229, 229, 229);
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 18;
-
-  items.forEach((it) => {
-    const variant = (it.size && it.size !== 'One Size') || it.color ? ` — ${[it.size, it.color].filter(Boolean).join(' / ')}` : '';
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10.5);
-    doc.setTextColor(28, 25, 23);
-    doc.text(`${it.name || it.productName || ''}${variant}`, margin, y);
-    doc.text(pdfFmt(it.price * it.qty), pageWidth - margin, y, { align: 'right' });
-    y += 15;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(120, 113, 108);
-    doc.text(`${it.qty} × ${pdfFmt(it.price)}`, margin, y);
-    y += 18;
-  });
-
-  doc.setDrawColor(229, 229, 229);
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 20;
-
+  const width = 380;
+  const margin = 20;
+  const headerHeight = 96;
   const rows = [['Subtotal', pdfFmt(subtotal)]];
   if (discount > 0) rows.push(['Discount', `-${pdfFmt(discount)}`]);
   if (pointsDiscountAmt > 0) rows.push(['Points redeemed', `-${pdfFmt(pointsDiscountAmt)}`]);
   if (creditUsed > 0) rows.push(['Store credit', `-${pdfFmt(creditUsed)}`]);
-  rows.forEach(([label, val]) => {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10.5);
-    doc.setTextColor(87, 83, 78);
-    doc.text(label, margin, y);
-    doc.text(val, pageWidth - margin, y, { align: 'right' });
-    y += 16;
+  const height = headerHeight + 70 /* invoice/date/customer */ + 26 /* item header */
+    + items.length * 36 + 26 /* totals rule */ + rows.length * 18 + 110 /* total + paid-by */ + 50 /* footer */;
+
+  const scale = 2; // sharper on a phone screen than 1:1 CSS pixels would be
+  const canvas = document.createElement('canvas');
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  // Header band, matching the letterhead used on every other generated
+  // document — rose with an amber accent rule underneath.
+  ctx.fillStyle = '#881337';
+  ctx.fillRect(0, 0, width, headerHeight);
+  ctx.fillStyle = '#d97706';
+  ctx.fillRect(0, headerHeight, width, 3);
+
+  const businessName = settings.businessName || 'Riskyc Fashion';
+  const monogram = businessName.split(' ').filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase() || 'R';
+  const logoSize = 42;
+  ctx.fillStyle = '#ffffff';
+  roundedRectPath(ctx, margin, (headerHeight - logoSize) / 2, logoSize, logoSize, 8);
+  ctx.fill();
+  ctx.fillStyle = '#881337';
+  ctx.font = `bold ${monogram.length > 1 ? 17 : 22}px Georgia, 'Times New Roman', serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(monogram, margin + logoSize / 2, headerHeight / 2 + 1);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  const textX = margin + logoSize + 12;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = "bold 17px Georgia, 'Times New Roman', serif";
+  ctx.fillText(businessName, textX, headerHeight / 2 - 2);
+  ctx.font = '10px Arial, sans-serif';
+  const contactBits = [settings.address, settings.phone, settings.email].filter(Boolean).join('  •  ');
+  if (contactBits) ctx.fillText(contactBits, textX, headerHeight / 2 + 15, width - textX - margin);
+  ctx.font = 'bold 10px Arial, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('RECEIPT', width - margin, 22);
+  ctx.textAlign = 'left';
+
+  let y = headerHeight + 28;
+  ctx.fillStyle = '#1c1917';
+  ctx.font = '12px Arial, sans-serif';
+  ctx.fillText(`Invoice: ${invoiceNo || '—'}`, margin, y);
+  ctx.textAlign = 'right';
+  ctx.fillText(new Date().toLocaleString(), width - margin, y);
+  ctx.textAlign = 'left';
+  y += 20;
+  ctx.fillText(`Customer: ${customer?.name || 'Walk-in'}`, margin, y);
+  y += 28;
+
+  ctx.font = 'bold 11px Arial, sans-serif';
+  ctx.fillStyle = '#78716c';
+  ctx.fillText('ITEM', margin, y);
+  ctx.textAlign = 'right';
+  ctx.fillText('TOTAL', width - margin, y);
+  ctx.textAlign = 'left';
+  y += 8;
+  ctx.strokeStyle = '#e5e5e5';
+  ctx.beginPath(); ctx.moveTo(margin, y); ctx.lineTo(width - margin, y); ctx.stroke();
+  y += 20;
+
+  items.forEach((it) => {
+    const variant = (it.size && it.size !== 'One Size') || it.color ? ` — ${[it.size, it.color].filter(Boolean).join(' / ')}` : '';
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillStyle = '#1c1917';
+    ctx.fillText(`${it.name || it.productName || ''}${variant}`, margin, y, width - margin * 2 - 70);
+    ctx.textAlign = 'right';
+    ctx.fillText(pdfFmt(it.price * it.qty), width - margin, y);
+    ctx.textAlign = 'left';
+    y += 17;
+    ctx.font = '10px Arial, sans-serif';
+    ctx.fillStyle = '#78716c';
+    ctx.fillText(`${it.qty} × ${pdfFmt(it.price)}`, margin, y);
+    y += 19;
   });
-  y += 6;
-  doc.setDrawColor(28, 25, 23);
-  doc.setLineWidth(0.75);
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 22;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.setTextColor(28, 25, 23);
-  doc.text('Total', margin, y);
-  doc.text(pdfFmt(total), pageWidth - margin, y, { align: 'right' });
+
+  ctx.strokeStyle = '#e5e5e5';
+  ctx.beginPath(); ctx.moveTo(margin, y); ctx.lineTo(width - margin, y); ctx.stroke();
   y += 24;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.5);
-  doc.setTextColor(120, 113, 108);
-  doc.text(`Paid by ${method}`, margin, y);
 
-  // Plain page footer — no "Manager" signature line; that's for
-  // payslips/notices, not a receipt handed to a customer.
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const footY = pageHeight - 36;
-  doc.setDrawColor(229, 229, 229);
-  doc.setLineWidth(0.5);
-  doc.line(margin, footY - 14, pageWidth - margin, footY - 14);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(120, 113, 108);
-  const left = [settings.rccm, settings.niu].filter(Boolean).join('   •   ');
-  if (left) doc.text(left, margin, footY);
-  doc.text(settings.receiptFooter || 'Thank you for your purchase', pageWidth - margin, footY, { align: 'right' });
+  rows.forEach(([label, val]) => {
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillStyle = '#57534e';
+    ctx.fillText(label, margin, y);
+    ctx.textAlign = 'right';
+    ctx.fillText(val, width - margin, y);
+    ctx.textAlign = 'left';
+    y += 18;
+  });
+  y += 4;
+  ctx.strokeStyle = '#1c1917';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(margin, y); ctx.lineTo(width - margin, y); ctx.stroke();
+  ctx.lineWidth = 1;
+  y += 26;
+  ctx.font = "bold 16px Georgia, 'Times New Roman', serif";
+  ctx.fillStyle = '#1c1917';
+  ctx.fillText('Total', margin, y);
+  ctx.textAlign = 'right';
+  ctx.fillText(pdfFmt(total), width - margin, y);
+  ctx.textAlign = 'left';
+  y += 26;
+  ctx.font = '11px Arial, sans-serif';
+  ctx.fillStyle = '#78716c';
+  ctx.fillText(`Paid by ${method}`, margin, y);
+  y += 30;
 
-  return doc;
+  // Plain footer — no "Manager" signature line; that's for payslips/
+  // notices, not a receipt handed to a customer.
+  ctx.strokeStyle = '#e5e5e5';
+  ctx.beginPath(); ctx.moveTo(margin, y); ctx.lineTo(width - margin, y); ctx.stroke();
+  y += 18;
+  ctx.font = '9px Arial, sans-serif';
+  ctx.fillStyle = '#78716c';
+  const left = [settings.rccm, settings.niu].filter(Boolean).join('  •  ');
+  if (left) ctx.fillText(left, margin, y);
+  ctx.textAlign = 'right';
+  const footerW = width - margin * 2 - (left ? 100 : 0);
+  ctx.fillText(settings.receiptFooter || 'Thank you for your purchase', width - margin, y, footerW > 0 ? footerW : undefined);
+  ctx.textAlign = 'left';
+
+  return canvas.toDataURL('image/jpeg', 0.92);
 }

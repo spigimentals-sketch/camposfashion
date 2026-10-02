@@ -10,7 +10,7 @@ import {
   ProductForm, SupplierForm, UserForm, EmployeeForm, POForm,
   downloadCsv, downloadJson, PrimaryBtn, GhostBtn,
   AuthProvider, useAuth, LoginScreen, PlatformLogin, switchShop,
-  createLetterheadPdf, finishLetterheadPdf, buildReceiptPdf,
+  createLetterheadPdf, finishLetterheadPdf, buildReceiptImage,
 } from './shared.jsx';
 import { getTenantToken } from './api.js';
 import {
@@ -860,19 +860,14 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
 
   // Same wa.me pattern as the Shifts/Users WhatsApp notify flow: no paid
   // WhatsApp Business API here, so this can only pre-fill a message with a
-  // link to an uploaded PDF and open the chat — the cashier still has to
-  // press Send themselves in WhatsApp.
+  // link to an uploaded image and open the chat — the cashier still has to
+  // press Send themselves in WhatsApp. An image (not a PDF) so it previews
+  // inline in the chat instead of showing as a file to tap open.
   const sendViaWhatsApp = async () => {
     if (!customer?.phone) return;
     setWaPreparing(true);
     try {
-      const doc = await buildReceiptPdf(data, settings || {});
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Could not read generated PDF'));
-        reader.readAsDataURL(doc.output('blob'));
-      });
+      const dataUrl = buildReceiptImage(data, settings || {});
       const { path } = await api.uploadDocument(`receipt-${invoiceNo || Date.now()}`, dataUrl);
       const pdfUrl = `${window.location.origin}${path}`;
       const text = `Hello ${customer.name || ''}, here is your receipt for ${fmt(total)}: ${pdfUrl}`;

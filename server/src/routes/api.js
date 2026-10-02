@@ -129,13 +129,16 @@ r.post('/upload', h((req, res) => {
 // message text (wa.me links can only pre-fill text, never attach a file).
 r.post('/upload-document', requireAuth, h((req, res) => {
   const { filename = 'document', dataUrl } = req.body || {};
-  if (!dataUrl || !dataUrl.startsWith('data:application/pdf')) throw new Error('dataUrl (base64 PDF) is required');
-  const m = dataUrl.match(/^data:application\/pdf;base64,(.+)$/);
-  if (!m) throw new Error('unsupported document data');
+  // PDF for payslips/notices; JPEG for receipts sent via WhatsApp — an
+  // image previews inline in the chat, where a PDF just shows as a file
+  // the customer has to tap to open, which is why receipts switched to it.
+  const m = (dataUrl || '').match(/^data:(application\/pdf|image\/jpeg);base64,(.+)$/);
+  if (!m) throw new Error('dataUrl (base64 PDF or JPEG) is required');
+  const ext = m[1] === 'image/jpeg' ? 'jpg' : 'pdf';
   const base = filename.replace(/\.[a-z0-9]+$/i, '').replace(/[^a-z0-9._-]/gi, '_').slice(0, 40) || 'document';
-  const name = `${Date.now()}-${base}.pdf`;
+  const name = `${Date.now()}-${base}.${ext}`;
   const slug = getCurrentTenant().slug;
-  fs.writeFileSync(path.join(uploadDirFor(slug), name), Buffer.from(m[1], 'base64'));
+  fs.writeFileSync(path.join(uploadDirFor(slug), name), Buffer.from(m[2], 'base64'));
   res.status(201).json({ path: `/uploads/${slug}/${name}` });
 }));
 
