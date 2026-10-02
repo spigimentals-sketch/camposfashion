@@ -1978,7 +1978,7 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
                     </div>
                   )}
                   <div className="aspect-square rounded-xl bg-gradient-to-br from-stone-50 to-stone-100 flex items-center justify-center mb-3 text-4xl group-hover:scale-105 transition-transform overflow-hidden">
-                    {p.image ? <img src={imageUrl(p.image)} alt="" className="w-full h-full object-cover" /> : p.emoji}
+                    {p.image ? <img src={imageUrl(p.image)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" /> : p.emoji}
                   </div>
                   <div className="text-[11px] text-stone-400 font-mono mb-0.5">{p.sku}</div>
                   <div className="text-sm font-medium text-stone-900 leading-tight line-clamp-2 mb-1.5 min-h-[2.5em]">{productName(p)}</div>
@@ -2505,6 +2505,11 @@ const ProductsPanel = () => {
   const products = online ? (liveProducts || []) : (liveProducts?.length ? liveProducts : PRODUCTS);
   const lowStockThreshold = Number(settings?.lowStockThreshold) || 10;
   const categoryList = useCategoryList();
+  // A Map lookup instead of categoryList.find(...) inside the row loop —
+  // .find() is O(n) per row, so it was effectively O(rows x categories)
+  // every render. Small today, but it's the same class of thing as the
+  // unmemoized filter/sort below.
+  const categoryById = useMemo(() => new Map(categoryList.map(c => [c.id, c])), [categoryList]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState('date_registered');
@@ -2517,22 +2522,29 @@ const ProductsPanel = () => {
   const [editingCost, setEditingCost] = useState(null); // { id, value }
   const [editingPrice, setEditingPrice] = useState(null); // { id, value }
   const [editingPacket, setEditingPacket] = useState(null); // { id, price, units }
-  const filtered = products.filter(p => {
+  // Memoized: without this, every product in the catalog got re-filtered
+  // and re-sorted on every render — including ones that have nothing to do
+  // with search/sort, like typing into an inline cost/price edit field, or
+  // toggling a checkbox. Invisible with a handful of products, but it's a
+  // real source of lag once the catalog grows into the hundreds.
+  const filtered = useMemo(() => products.filter(p => {
     if (filter === 'low' && p.stock >= lowStockThreshold) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
-  });
-  const SORTERS = {
-    date_modified: (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0),
-    date_registered: (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
-    name_az: (a, b) => a.name.localeCompare(b.name),
-    name_za: (a, b) => b.name.localeCompare(a.name),
-    stock_high: (a, b) => b.stock - a.stock,
-    stock_low: (a, b) => a.stock - b.stock,
-    price_high: (a, b) => b.price - a.price,
-    price_low: (a, b) => a.price - b.price,
-  };
-  const sorted = [...filtered].sort(SORTERS[sortBy] || SORTERS.date_registered);
+  }), [products, filter, search, lowStockThreshold]);
+  const sorted = useMemo(() => {
+    const SORTERS = {
+      date_modified: (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0),
+      date_registered: (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
+      name_az: (a, b) => a.name.localeCompare(b.name),
+      name_za: (a, b) => b.name.localeCompare(a.name),
+      stock_high: (a, b) => b.stock - a.stock,
+      stock_low: (a, b) => a.stock - b.stock,
+      price_high: (a, b) => b.price - a.price,
+      price_low: (a, b) => a.price - b.price,
+    };
+    return [...filtered].sort(SORTERS[sortBy] || SORTERS.date_registered);
+  }, [filtered, sortBy]);
   const exportProducts = () => {
     const rows = [['Name', 'SKU', 'Category', 'Price', 'Stock']];
     sorted.forEach(p => rows.push([p.name, p.sku, p.category, p.price, p.stock]));
@@ -2751,7 +2763,7 @@ const ProductsPanel = () => {
           </thead>
           <tbody>
             {sorted.map(p => {
-              const cat = categoryList.find(c => c.id === p.category);
+              const cat = categoryById.get(p.category);
               const lowStock = p.stock < lowStockThreshold;
               const isSelected = selected.has(p.id);
               return (
@@ -2764,7 +2776,7 @@ const ProductsPanel = () => {
                   )}
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-stone-50 to-stone-100 flex items-center justify-center text-xl overflow-hidden">{p.image ? <img src={imageUrl(p.image)} alt="" className="w-full h-full object-cover" /> : p.emoji}</div>
+                      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-stone-50 to-stone-100 flex items-center justify-center text-xl overflow-hidden">{p.image ? <img src={imageUrl(p.image)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" /> : p.emoji}</div>
                       <div className="text-sm font-medium text-stone-900">{p.name}</div>
                     </div>
                   </td>
