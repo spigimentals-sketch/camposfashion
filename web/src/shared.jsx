@@ -562,14 +562,15 @@ export function ProductForm({ open, onClose, initial }) {
         <PrimaryBtn onClick={save} disabled={uploading}>{uploading ? 'Uploading…' : 'Save'}</PrimaryBtn>
       </>}>
 
-      {/* Photo: the preview box itself is the upload trigger (click anywhere
-          on it), rather than a separate button — one obvious click target
-          instead of two. No camera option; this shop always uses real
-          product photos taken elsewhere and uploaded. */}
-      <Field label="Photo">
-        <div className="flex items-center gap-3">
+      {/* Photo + Name side by side — the preview box itself is the upload
+          trigger (click anywhere on it), rather than a separate button. No
+          camera option; this shop always uses real product photos taken
+          elsewhere and uploaded. */}
+      <div className="flex items-start gap-4 mb-3">
+        <div className="flex-shrink-0">
+          <label className="block text-xs font-medium text-stone-600 mb-1">Photo</label>
           <label
-            className="w-24 h-24 rounded-xl bg-stone-100 border-2 border-dashed border-stone-300 flex flex-col items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:border-rose-400 hover:bg-stone-50 transition-colors group relative"
+            className="w-24 h-24 rounded-xl bg-stone-100 border-2 border-dashed border-stone-300 flex flex-col items-center justify-center overflow-hidden cursor-pointer hover:border-rose-400 hover:bg-stone-50 transition-colors group relative"
             title={preview ? 'Click to change photo' : 'Click to upload a photo'}
           >
             {preview ? (
@@ -586,12 +587,35 @@ export function ProductForm({ open, onClose, initial }) {
           </label>
           {preview && (
             <button type="button" onClick={() => setForm(f => ({ ...f, image: null }))}
-              className="text-xs text-stone-500 hover:text-rose-600">Remove photo</button>
+              className="mt-1 text-xs text-stone-500 hover:text-rose-600">Remove photo</button>
           )}
         </div>
-      </Field>
+        <div className="flex-1 pt-5">
+          <Field label="Name"><Input value={form.name} onChange={set('name')} /></Field>
+        </div>
+      </div>
 
-      <Field label="Name"><Input value={form.name} onChange={set('name')} /></Field>
+      {/* Cost price + quantity — the two numbers needed to know what a
+          restock actually cost and how much of it there is. Quantity only
+          shows here as a single field when variants are off (settings >
+          Product variants); with variants on, stock is per size/color
+          further down instead, so this row is just cost price alone. */}
+      <div className={useVariants ? '' : 'grid grid-cols-2 gap-3'}>
+        <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
+        {!useVariants && (
+          <Field label="Quantity">
+            <Input type="number" value={form.variants?.[0]?.stock ?? 0} onChange={e => updateVariant(0, 'stock', e.target.value)} />
+          </Field>
+        )}
+      </div>
+
+      {/* Packet price + quantity — selling this product as a fixed-size
+          packet (e.g. a case of 6) alongside the unit price. Leaving it at 0
+          means that option isn't offered. */}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Packet price (FCFA)"><Input type="number" value={form.packetPrice || ''} onChange={set('packetPrice')} placeholder="e.g. 2 800" /></Field>
+        <Field label="Units per packet"><Input type="number" value={form.unitsPerPacket || ''} onChange={set('unitsPerPacket')} placeholder="e.g. 6" /></Field>
+      </div>
 
       <Field label="Category">
         {addingCat ? (
@@ -624,13 +648,9 @@ export function ProductForm({ open, onClose, initial }) {
         )}
       </Field>
 
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Selling price (FCFA)"><Input type="number" value={form.price} onChange={set('price')} /></Field>
-        <Field label="Cost price (FCFA)"><Input type="number" value={form.cost} onChange={set('cost')} /></Field>
-      </div>
+      <Field label="Selling price (FCFA)"><Input type="number" value={form.price} onChange={set('price')} /></Field>
 
-      {/* Bulk purchase calculator — a helper for filling in Cost price above,
-          so it sits right next to it rather than further down the form. */}
+      {/* Bulk purchase calculator — a helper for filling in Cost price above. */}
       <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
         <div className="text-xs font-semibold text-amber-800 uppercase tracking-wider">📦 Cost Calculator</div>
         <div className="grid grid-cols-2 gap-3">
@@ -668,9 +688,9 @@ export function ProductForm({ open, onClose, initial }) {
           with its own SKU and stock count — price/cost above apply to all of
           them. A simple accessory with no real sizing just keeps one row.
           Shops that don't sell in sizes/colors can turn this off entirely in
-          Settings ("Product variants"), which collapses this down to a
-          single stock field — see settings.useVariants. */}
-      {useVariants ? (
+          Settings ("Product variants") — the Quantity field near the top
+          covers stock in that case, so nothing duplicates it here. */}
+      {useVariants && (
         <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-xs font-semibold text-stone-600 uppercase tracking-wider">Variants (size / color)</div>
@@ -722,10 +742,6 @@ export function ProductForm({ open, onClose, initial }) {
             </button>
           </div>
         </div>
-      ) : (
-        <Field label="Stock on hand">
-          <Input type="number" value={form.variants?.[0]?.stock ?? 0} onChange={e => updateVariant(0, 'stock', e.target.value)} />
-        </Field>
       )}
 
       <Field label="Style SKU">
@@ -744,18 +760,6 @@ export function ProductForm({ open, onClose, initial }) {
           </label>
         </div>
       </Field>
-
-      {/* Optional packet pricing — lets this product also be sold as a fixed-size
-          packet (e.g. a case of 6) at its own price, alongside the unit price above.
-          Leaving it at 0 means that option isn't offered. Placed last: it's an
-          extra, less-common option, not part of the core flow of adding a product. */}
-      <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4 space-y-3">
-        <div className="text-xs font-semibold text-stone-600 uppercase tracking-wider">Packet pricing (optional)</div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Packet price (FCFA)"><Input type="number" value={form.packetPrice || ''} onChange={set('packetPrice')} placeholder="e.g. 2 800" /></Field>
-          <Field label="Units per packet"><Input type="number" value={form.unitsPerPacket || ''} onChange={set('unitsPerPacket')} placeholder="e.g. 6" /></Field>
-        </div>
-      </div>
     </Modal>
   );
 }
