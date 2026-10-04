@@ -890,14 +890,6 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
     return () => document.getElementById('receipt-page-size')?.remove();
   }, [open]);
 
-  // Fires once per completed sale, right as the receipt appears — printing
-  // shouldn't depend on someone remembering to click Print every time.
-  // The brief delay lets the modal actually paint first.
-  useEffect(() => {
-    if (!open) return;
-    const id = setTimeout(() => window.print(), 250);
-    return () => clearTimeout(id);
-  }, [open]);
   if (!open) return null;
   const { items = [], subtotal = 0, discount = 0, pointsDiscountAmt = 0, creditUsed = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
   const paid = total;
@@ -2022,15 +2014,6 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
       setJustPaid(true);
       refresh();
       setShowReceipt(true);
-      // Fires the instant payment completes, same call stack as the click
-      // that triggered it — no separate "open receipt, then click Send"
-      // step for the cashier. Only does anything when the sale has a
-      // customer phone on file; silent means it never surfaces a toast or
-      // forces a download on the cashier's behalf for something they never
-      // explicitly asked this click to do — the manual button in the
-      // receipt modal is still there if this doesn't go through (e.g. the
-      // device doesn't support any of the three sharing tiers).
-      sendReceiptToWhatsApp({ data: completed, settings, silent: true });
     } catch (e) {
       if (!e.status) {
         queueMutation('order', payload);
@@ -2040,7 +2023,6 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
         setJustPaid(true);
         toast('Offline — sale saved, will sync automatically once back online', 'info');
         setShowReceipt(true);
-        sendReceiptToWhatsApp({ data: completed, settings, silent: true });
       } else {
         toast(e.message, 'error');
       }
