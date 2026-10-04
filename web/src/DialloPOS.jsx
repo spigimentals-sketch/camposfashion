@@ -530,6 +530,50 @@ const FCFA_PER_POINT = 5;
 // wa.me wants digits only, country code included, no leading +/0/spaces.
 // Shared by the staff WhatsApp-notify feature and the customer promo one.
 const normalizePhone = (raw) => (raw || '').replace(/[^\d]/g, '').replace(/^0+/, '');
+
+// Shared by the receipt modal's "Send via WhatsApp" button AND by
+// completePayment (auto-fires the instant a sale with a customer phone
+// number goes through, so the cashier never has to open the receipt and
+// click Send themselves). Same three-tier strategy either way — share the
+// real image file where that's supported, copy-to-clipboard + open the
+// chat where it isn't, download as an absolute last resort — see the
+// comment above the old inline version for why each tier exists. `silent`
+// is set for the automatic call so a customer with no phone on file (or a
+// browser with none of these APIs) doesn't surface a toast for something
+// the cashier never asked for; the manual button still gets full feedback.
+async function sendReceiptToWhatsApp({ data, settings, toast, silent = false }) {
+  const { customer, total, invoiceNo } = data || {};
+  if (!customer?.phone) return;
+  try {
+    const dataUrl = await buildReceiptImage(data, settings || {});
+    const blob = await (await fetch(dataUrl)).blob();
+    const filename = `receipt-${invoiceNo || Date.now()}.jpg`;
+    const file = new File([blob], filename, { type: 'image/jpeg' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], text: `Receipt for ${customer.name || 'your purchase'} — ${fmt(total)}` });
+      return;
+    }
+    if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+      try {
+        const pngDataUrl = await buildReceiptImage(data, settings || {}, 'png');
+        const pngBlob = await (await fetch(pngDataUrl)).blob();
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+        window.open(`https://wa.me/${normalizePhone(customer.phone)}`, '_blank');
+        if (toast) toast('Receipt image copied — paste it (Ctrl+V) into the chat that just opened', 'info');
+        return;
+      } catch { /* fall through to download */ }
+    }
+    if (silent) return; // never auto-download on the cashier's behalf
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename;
+    a.click();
+    if (toast) toast("This device can't share or copy images — receipt image downloaded, attach it in WhatsApp yourself", 'info');
+  } catch (e) {
+    if (e.name === 'AbortError') return; // cashier/customer closed the share sheet
+    if (toast && !silent) toast(e.message || 'Could not share the receipt', 'error');
+  }
+}
 // A "half packet" sale consumes roughly half a full packet's units — e.g. a
 // carton of 6 sold as 3. Rounded since packet sizes aren't always even.
 const halfPackUnits = (p) => Math.max(1, Math.round((p?.unitsPerPacket || 0) / 2));
@@ -876,33 +920,7 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
     if (!customer?.phone) return;
     setWaPreparing(true);
     try {
-      const dataUrl = await buildReceiptImage(data, settings || {});
-      const blob = await (await fetch(dataUrl)).blob();
-      const filename = `receipt-${invoiceNo || Date.now()}.jpg`;
-      const file = new File([blob], filename, { type: 'image/jpeg' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], text: `Receipt for ${customer.name || 'your purchase'} — ${fmt(total)}` });
-        return;
-      }
-      if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
-        try {
-          const pngDataUrl = await buildReceiptImage(data, settings || {}, 'png');
-          const pngBlob = await (await fetch(pngDataUrl)).blob();
-          await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
-          window.open(`https://wa.me/${normalizePhone(customer.phone)}`, '_blank');
-          toast('Receipt image copied — paste it (Ctrl+V) into the chat that just opened', 'info');
-          return;
-        } catch { /* fall through to download */ }
-      }
-      // Nothing above is supported on this device — download is the only
-      // option left, and the cashier still has to attach it themselves.
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = filename;
-      a.click();
-      toast("This device can't share or copy images — receipt image downloaded, attach it in WhatsApp yourself", 'info');
-    } catch (e) {
-      if (e.name !== 'AbortError') toast(e.message || 'Could not share the receipt', 'error');
+      await sendReceiptToWhatsApp({ data, settings, toast });
     } finally {
       setWaPreparing(false);
     }
@@ -1999,18 +2017,30 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   const doCreateOrder = async (payload, snapshot) => {
     try {
       const order = await api.createOrder(payload);
-      setCompletedOrder({ ...snapshot, invoiceNo: order.invoiceNo });
+      const completed = { ...snapshot, invoiceNo: order.invoiceNo };
+      setCompletedOrder(completed);
       setJustPaid(true);
       refresh();
       setShowReceipt(true);
+      // Fires the instant payment completes, same call stack as the click
+      // that triggered it — no separate "open receipt, then click Send"
+      // step for the cashier. Only does anything when the sale has a
+      // customer phone on file; silent means it never surfaces a toast or
+      // forces a download on the cashier's behalf for something they never
+      // explicitly asked this click to do — the manual button in the
+      // receipt modal is still there if this doesn't go through (e.g. the
+      // device doesn't support any of the three sharing tiers).
+      sendReceiptToWhatsApp({ data: completed, settings, silent: true });
     } catch (e) {
       if (!e.status) {
         queueMutation('order', payload);
         const invoiceNo = 'INV-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 9000 + 1000);
-        setCompletedOrder({ ...snapshot, invoiceNo });
+        const completed = { ...snapshot, invoiceNo };
+        setCompletedOrder(completed);
         setJustPaid(true);
         toast('Offline — sale saved, will sync automatically once back online', 'info');
         setShowReceipt(true);
+        sendReceiptToWhatsApp({ data: completed, settings, silent: true });
       } else {
         toast(e.message, 'error');
       }
