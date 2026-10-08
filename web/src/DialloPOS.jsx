@@ -277,17 +277,21 @@ const useShifts = () => useContext(ShiftContext);
 // accountant -> read-only finance role: dashboard, inventory (no edit), customers, reports
 //               with cost/margin + accounting, shifts (view), expenses. NO checkout, NO edits.
 // addProducts is split out from editInventory: it gates only onboarding brand-new SKUs
-// ("Add product" / "Scan to add"), so a manager can still fix stock counts or correct an
-// existing listing without being the one who adds new catalog items.
+// from the full Inventory screen ("Add product" / "Scan to add"), so a manager can still
+// fix stock counts or correct an existing listing without being the one who adds new
+// catalog items there. quickAddFromPOS is a separate, narrower permission: it only
+// controls the "Can't find it? Add product" prompt that shows up when a cashier's POS
+// search comes back empty — letting her register a brand-new item on the spot without
+// granting her the full Inventory screen (inventory stays false for cashier).
 const ROLE_ACCESS = {
   admin:   { home: true, pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: true, expenses: true, manualSale: true, onlineOrders: true,
-             seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, addProducts: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false, admin: true },
+             seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, addProducts: true, quickAddFromPOS: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false, admin: true },
   manager: { home: true, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true, manualSale: true, onlineOrders: true,
-             seeCost: false, seeFinance: false, seeUsers: false, editInventory: true, addProducts: false, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
+             seeCost: false, seeFinance: false, seeUsers: false, editInventory: true, addProducts: false, quickAddFromPOS: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
   cashier: { home: true, pos: true, dashboard: false, inventory: false, customers: false, reports: false, shifts: true, settings: false, expenses: false, manualSale: false, onlineOrders: true,
-             seeCost: false, seeFinance: false, seeUsers: false, editInventory: false, addProducts: false, seeCustomerPII: false, seeAllShifts: false, readOnly: false },
+             seeCost: false, seeFinance: false, seeUsers: false, editInventory: false, addProducts: false, quickAddFromPOS: true, seeCustomerPII: false, seeAllShifts: false, readOnly: false },
   accountant: { home: false, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true, manualSale: false, onlineOrders: false,
-             seeCost: true, seeFinance: true, seeUsers: false, editInventory: false, addProducts: false, seeCustomerPII: true, seeAllShifts: true, readOnly: true },
+             seeCost: true, seeFinance: true, seeUsers: false, editInventory: false, addProducts: false, quickAddFromPOS: false, seeCustomerPII: true, seeAllShifts: true, readOnly: true },
 };
 const RoleContext = createContext(null);
 const useRole = () => useContext(RoleContext);
@@ -1739,6 +1743,7 @@ const ReturnApprovalWatcher = () => {
 const POSView = ({ initialCategory, onCategoryConsumed }) => {
   const { t, lang } = useT();
   const { user } = useAuth();
+  const { can } = useRole();
   const { currentStoreId } = useStore();
   const { activeCashier } = useShifts();
   const { products: liveProducts, customers: liveCustomers, online, refresh, settings, queueMutation, upsertCustomer } = useData();
@@ -1754,6 +1759,18 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
   useEffect(() => { if (initialCategory) onCategoryConsumed?.(); }, []); // eslint-disable-line
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  // Captured once per open (not recomputed on every render) so an in-progress
+  // edit in the form doesn't get silently reset by an unrelated POSView
+  // re-render — ProductForm re-syncs its local state whenever this object's
+  // reference changes.
+  const quickAddInitial = useMemo(() => ({
+    name: search.trim(), name_fr: '', category: categoryPills.find(c => c.id !== 'all')?.id || 'tshirts',
+    price: 0, cost: 0, sku: '', emoji: '📦', image: null,
+    packetPrice: 0, unitsPerPacket: 0, halfPacketPrice: 0,
+    variants: [{ size: '', color: '', sku: '', stock: 0 }],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [quickAddOpen]);
   const [customer, setCustomer] = useState(null);
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [quickPhone, setQuickPhone] = useState('');
@@ -2161,6 +2178,27 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
               );
             })}
           </div>
+          {filtered.length === 0 && (
+            <div className="flex flex-col items-center justify-center text-center py-16 px-4">
+              <div className="w-14 h-14 rounded-2xl bg-stone-100 flex items-center justify-center mb-3">
+                <Search size={22} className="text-stone-400" />
+              </div>
+              {search.trim() ? (
+                <>
+                  <div className="text-sm font-medium text-stone-700">No results for "{search.trim()}"</div>
+                  <div className="text-xs text-stone-400 mt-1 mb-4">Check the spelling, or register it as a new product.</div>
+                </>
+              ) : (
+                <div className="text-sm text-stone-400 mb-4">Nothing in this category yet.</div>
+              )}
+              {can.quickAddFromPOS && (
+                <button onClick={() => setQuickAddOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-rose-900 text-white rounded-xl text-sm font-medium hover:bg-rose-800 shadow-sm">
+                  <Plus size={16} /> Add product
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -2346,6 +2384,12 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
 
       <ReceiptModal open={showReceipt} onClose={() => setShowReceipt(false)} data={completedOrder} onNewOrder={startNewOrder} />
       <ScanModal open={showScan} onClose={() => setShowScan(false)} onScan={onScanCode} />
+      {/* Lets a cashier register a brand-new item right from a failed POS
+          search instead of having to find someone with Inventory access —
+          pre-fills the name with whatever she typed so she isn't retyping
+          it. Same ProductForm the Inventory screen uses, so the new item
+          follows the exact same save/stock rules either way. */}
+      <ProductForm open={quickAddOpen} onClose={() => setQuickAddOpen(false)} initial={quickAddInitial} />
       <DiscountInputModal open={showDiscount} onClose={() => setShowDiscount(false)} onApply={setDiscount} subtotal={subtotal} />
       <VariantPickerModal product={variantPicker} onClose={() => setVariantPicker(null)}
         onPick={(v) => { addToCart(variantPicker, 'unit', v); setVariantPicker(null); }} />
