@@ -795,37 +795,6 @@ const KpiCard = ({ label, value, delta, icon: Icon, accent, compact }) => (
 );
 
 // ============ THERMAL RECEIPT (modal) ============
-const QRPattern = () => {
-  // Decorative QR-like pattern using SVG
-  const cells = [];
-  const size = 21;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      // Position markers (corner squares)
-      const inCorner = (
-        (x < 7 && y < 7) || (x >= size - 7 && y < 7) || (x < 7 && y >= size - 7)
-      );
-      let fill = false;
-      if (inCorner) {
-        const cx = x < 7 ? 3 : size - 4;
-        const cy = y < 7 ? 3 : y >= size - 7 ? size - 4 : 3;
-        const dx = Math.abs(x - cx), dy = Math.abs(y - cy);
-        const m = Math.max(dx, dy);
-        fill = m === 0 || m === 1 || m === 3;
-      } else {
-        // pseudo-random based on coords
-        fill = ((x * 7 + y * 13 + x * y) % 5) < 2;
-      }
-      if (fill) cells.push({ x, y });
-    }
-  }
-  return (
-    <svg viewBox="0 0 21 21" className="w-24 h-24">
-      {cells.map((c, i) => <rect key={i} x={c.x} y={c.y} width="1" height="1" fill="#0f172a" />)}
-    </svg>
-  );
-};
-
 const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   const { t, lang } = useT();
   const { activeCashier } = useShifts();
@@ -856,9 +825,7 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   }, [open]);
 
   if (!open) return null;
-  const { items = [], subtotal = 0, discount = 0, pointsDiscountAmt = 0, creditUsed = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
-  const paid = total;
-  const change = 0;
+  const { items = [], subtotal = 0, discount = 0, pointsDiscountAmt = 0, creditUsed = 0, total = 0, customer, invoiceNo = '' } = data || {};
   const productName = (p) => lang === 'fr' ? (PRODUCT_NAMES_FR[p.id] || p.name) : p.name;
 
   // No paid WhatsApp Business API here, so this can only pre-fill a message
@@ -954,22 +921,22 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
               <div className="border-t border-dashed border-stone-300 my-2" />
 
               {/* Items header */}
-              <div className="flex justify-between text-[10px] uppercase tracking-wider text-stone-500 font-bold mb-1">
+              <div className="flex justify-between text-[10px] uppercase tracking-wider text-stone-500 font-bold mb-1.5">
                 <span>{t('items_label')}</span><span>{t('total')}</span>
               </div>
 
               {items.length === 0 ? (
                 <div className="text-center text-stone-400 text-[10px] py-2">— no items —</div>
               ) : items.map(it => (
-                <div key={`${it.id}-${it.mode || 'unit'}`} className="mb-1">
+                <div key={`${it.id}-${it.mode || 'unit'}`} className="mb-2">
                   <div className="flex justify-between gap-2">
-                    <span className="flex-1">
+                    <span className="flex-1 text-[13px] font-medium text-stone-900">
                       {productName(it)}{it.mode === 'packet' ? ` (pack ×${it.unitsPerPacket})` : it.mode === 'half' ? ` (half pack ×${halfPackUnits(it)})` : ''}
                       {((it.size && it.size !== 'One Size') || it.color) ? ` — ${[it.size, it.color].filter(Boolean).join(' / ')}` : ''}
                     </span>
-                    <span className="font-medium">{fmt(it.price * it.qty)}</span>
+                    <span className="text-[13px] font-semibold text-stone-900">{fmt(it.price * it.qty)}</span>
                   </div>
-                  <div className="flex justify-between text-stone-500 text-[10px] pl-1">
+                  <div className="flex justify-between text-stone-500 text-[10px] pl-0.5">
                     <span>{it.qty} × {fmt(it.price)}</span>
                     <span className="font-mono">{it.sku}</span>
                   </div>
@@ -979,7 +946,7 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
               <div className="border-t border-dashed border-stone-300 my-2" />
 
               {/* Totals */}
-              <div className="space-y-0.5 text-[11px]">
+              <div className="space-y-1 text-[12px]">
                 <div className="flex justify-between"><span>{t('subtotal')}</span><span>{fmt(subtotal)}</span></div>
                 {discount > 0 && (
                   <div className="flex justify-between text-rose-700 font-medium"><span>Discount</span><span>-{fmt(discount)}</span></div>
@@ -990,40 +957,16 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
                 {creditUsed > 0 && (
                   <div className="flex justify-between text-teal-700 font-medium"><span>Store credit</span><span>-{fmt(creditUsed)}</span></div>
                 )}
-                <div className="border-t border-stone-900 my-1.5" />
-                <div className="flex justify-between font-bold text-sm">
-                  <span>{t('total')}</span>
-                  <span style={{ fontFamily: "'Fraunces', serif" }}>{fmt(total)}</span>
-                </div>
               </div>
 
-              <div className="border-t border-dashed border-stone-300 my-2" />
-
-              {/* Payment */}
-              <div className="space-y-0.5 text-[11px]">
-                <div className="flex justify-between"><span>{t('method')}:</span><span className="font-medium capitalize">{t(method)}</span></div>
-                <div className="flex justify-between"><span>{t('paid')}:</span><span>{fmt(paid)}</span></div>
-                <div className="flex justify-between"><span>{t('change')}:</span><span>{fmt(change)}</span></div>
-              </div>
-
-
-              {settings?.showQR && (
-                <>
-                  <div className="border-t border-dashed border-stone-300 my-3" />
-                  {/* QR */}
-                  <div className="flex flex-col items-center gap-1 my-3">
-                    <QRPattern />
-                    <div className="text-[9px] text-stone-500 uppercase tracking-widest">DGI · e-invoice verified</div>
-                  </div>
-                </>
-              )}
-
-              <div className="border-t border-dashed border-stone-300 my-2" />
-
-              <div className="text-center text-[10px] text-stone-600 leading-snug my-2">
-                <div className="font-bold mb-0.5" style={{ fontFamily: "'Fraunces', serif" }}>{settings?.receiptHeader || t('thank_you')}</div>
-                <div>{settings?.receiptFooter || t('visit_again')}</div>
-                {settings?.website && <div className="mt-2 text-stone-400">{settings.website}</div>}
+              {/* Grand total — the one number that matters most, called out
+                  on its own so it's unmissable at a glance. Everything that
+                  used to follow it (payment method/paid/change, QR, thank-
+                  you footer) was removed per the owner's request to keep
+                  the receipt focused on items + total only. */}
+              <div className="mt-3 py-3 px-3 bg-stone-900 rounded-lg flex justify-between items-baseline">
+                <span className="text-white text-xs uppercase tracking-widest font-medium">{t('total')}</span>
+                <span className="text-white text-2xl font-bold" style={{ fontFamily: "'Fraunces', serif" }}>{fmt(total)}</span>
               </div>
 
               {/* Bottom tear edge */}
@@ -5239,9 +5182,6 @@ const SettingsView = () => {
               </SettingsField>
               <SettingsField label={t('show_logo')}>
                 <Toggle checked={settings.showLogo} onChange={update('showLogo')} />
-              </SettingsField>
-              <SettingsField label={t('show_qr')} hint="Required for DGI e-invoice compliance">
-                <Toggle checked={settings.showQR} onChange={update('showQR')} />
               </SettingsField>
             </SettingsCard>
           )}
