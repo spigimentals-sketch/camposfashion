@@ -284,13 +284,13 @@ const useShifts = () => useContext(ShiftContext);
 // search comes back empty — letting her register a brand-new item on the spot without
 // granting her the full Inventory screen (inventory stays false for cashier).
 const ROLE_ACCESS = {
-  admin:   { home: true, pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: true, expenses: true, manualSale: true, onlineOrders: true,
+  admin:   { home: true, pos: true, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: true, expenses: true, manualSale: true, onlineOrders: true, saleHistory: true,
              seeCost: true, seeFinance: true, seeUsers: true, editInventory: true, addProducts: true, quickAddFromPOS: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false, admin: true },
-  manager: { home: true, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true, manualSale: true, onlineOrders: true,
+  manager: { home: true, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true, manualSale: true, onlineOrders: true, saleHistory: true,
              seeCost: false, seeFinance: false, seeUsers: false, editInventory: true, addProducts: false, quickAddFromPOS: true, seeCustomerPII: true, seeAllShifts: true, readOnly: false },
-  cashier: { home: true, pos: true, dashboard: false, inventory: false, customers: false, reports: false, shifts: true, settings: false, expenses: false, manualSale: false, onlineOrders: true,
+  cashier: { home: true, pos: true, dashboard: false, inventory: false, customers: false, reports: false, shifts: true, settings: false, expenses: false, manualSale: false, onlineOrders: true, saleHistory: true,
              seeCost: false, seeFinance: false, seeUsers: false, editInventory: false, addProducts: false, quickAddFromPOS: true, seeCustomerPII: false, seeAllShifts: false, readOnly: false },
-  accountant: { home: false, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true, manualSale: false, onlineOrders: false,
+  accountant: { home: false, pos: false, dashboard: true, inventory: true, customers: true, reports: true, shifts: true, settings: false, expenses: true, manualSale: false, onlineOrders: false, saleHistory: false,
              seeCost: true, seeFinance: true, seeUsers: false, editInventory: false, addProducts: false, quickAddFromPOS: false, seeCustomerPII: true, seeAllShifts: true, readOnly: true },
 };
 const RoleContext = createContext(null);
@@ -1077,6 +1077,7 @@ const NAV_STYLE = {
   expenses:   { gradient: 'from-orange-400 to-red-600',   icon: Receipt },
   manualSale: { gradient: 'from-teal-400 to-cyan-700',    icon: ClipboardList },
   onlineOrders: { gradient: 'from-cyan-500 to-blue-700',  icon: Smartphone },
+  saleHistory: { gradient: 'from-rose-400 to-pink-700',   icon: Receipt },
   shifts:     { gradient: 'from-slate-500 to-slate-700',  icon: Clock },
   settings:   { gradient: 'from-stone-600 to-stone-800',  icon: Settings },
 };
@@ -1098,6 +1099,7 @@ const HomeView = ({ onNavigate }) => {
     { id: 'expenses', label: t('expenses') || 'Expenses' },
     { id: 'manualSale', label: t('manualSale') || 'Record Sale' },
     { id: 'onlineOrders', label: 'Online Orders' },
+    { id: 'saleHistory', label: 'Sale History' },
     { id: 'shifts', label: t('shifts') || 'Shifts' },
     { id: 'settings', label: t('settings') },
   ].filter(item => can[item.id] && (item.id !== 'shifts' || !onHandheld));
@@ -5989,6 +5991,7 @@ export default function DialloPOS() {
     expenses: { title: t('expenses') || 'Expenses', sub: 'Record and review business expenses' },
     manualSale: { title: t('manualSale') || 'Record Sale', sub: 'Enter a sale that was written down on paper before it reached the system' },
     onlineOrders: { title: 'Online Orders', sub: 'Confirm payment for orders customers placed on your ordering link' },
+    saleHistory: { title: 'Sale History', sub: 'Past sales — tap any one to pull up its receipt' },
     settings: { title: t('settings'), sub: t('sub_settings') },
     shifts: { title: t('shifts') || 'Shifts', sub: t('sub_shifts') || 'Track employee clock-in and clock-out' },
   };
@@ -6630,6 +6633,110 @@ const OnlineOrdersView = () => {
   );
 };
 
+// Lets anyone with POS access pull up a past sale's receipt again — to
+// resend it over WhatsApp, reprint it, or just double-check what was sold —
+// without digging through Reports. A plain cashier only sees sales rung up
+// under her own name (same "own shift only" scoping as the rest of her
+// role, via seeAllShifts); admin/manager see every sale on the account.
+const SaleHistoryView = () => {
+  const { online, customers: liveCustomers } = useData();
+  const { toast } = useToast();
+  const { can } = useRole();
+  const { user } = useAuth();
+  const { activeCashier } = useShifts();
+  const customers = liveCustomers || [];
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [receiptData, setReceiptData] = useState(null);
+  const [loadingId, setLoadingId] = useState(null);
+
+  const load = async () => {
+    if (!online) return;
+    setLoading(true);
+    try { setOrders(await api.getOrders()); }
+    catch (e) { toast(e.message, 'error'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, [online]); // eslint-disable-line
+
+  const ownName = activeCashier?.name || user?.name;
+  const scoped = can.seeAllShifts ? orders : orders.filter(o => o.cashier === ownName);
+  const q = search.trim().toLowerCase();
+  const visible = !q ? scoped : scoped.filter((o) => {
+    const cust = customers.find(c => c.id === o.customerId);
+    return (o.invoiceNo || '').toLowerCase().includes(q) || (cust?.name || '').toLowerCase().includes(q) || (o.cashier || '').toLowerCase().includes(q);
+  });
+
+  // Fetches the full order (with line items) on demand rather than keeping
+  // every sale's items in memory up front — the list endpoint only returns
+  // order headers, same as every other orders list in the app.
+  const openReceipt = async (o) => {
+    setLoadingId(o.id);
+    try {
+      const full = await api.getOrder(o.id);
+      const cust = customers.find(c => c.id === full.customerId);
+      setReceiptData({
+        items: (full.items || []).map(it => ({
+          id: it.productId, name: it.name, sku: it.sku, price: it.price, qty: it.qty,
+          size: it.size, color: it.color, mode: it.mode, unitsPerPacket: it.unitsPerPacket,
+        })),
+        subtotal: full.subtotal, discount: full.discount || 0, pointsDiscountAmt: full.pointsDiscountAmt || 0,
+        creditUsed: full.creditApplied || 0, total: full.total,
+        customer: cust ? { id: cust.id, name: cust.name, phone: cust.phone } : null,
+        method: full.method, invoiceNo: full.invoiceNo,
+      });
+    } catch (e) {
+      toast(e.message || 'Could not load this sale', 'error');
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-stone-50/30 p-5 md:p-7">
+      <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
+        <div className="p-5 border-b border-stone-200/80 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h3 className="font-semibold text-stone-900">Sale history</h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              {can.seeAllShifts ? 'Every completed sale' : 'Sales rung up under your name'} — tap one to pull up its receipt.
+            </p>
+          </div>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search invoice, customer, cashier…"
+            className="text-xs px-3 py-1.5 border border-stone-200 rounded-lg w-56" />
+        </div>
+        <div className="divide-y divide-stone-100">
+          {visible.length === 0 ? (
+            <div className="px-5 py-10 text-center text-stone-400 text-sm">{loading ? 'Loading…' : 'No sales yet.'}</div>
+          ) : visible.map((o) => {
+            const cust = customers.find(c => c.id === o.customerId);
+            return (
+              <button key={o.id} onClick={() => openReceipt(o)} disabled={loadingId === o.id}
+                className="w-full text-left p-4 flex items-center justify-between gap-4 hover:bg-stone-50 disabled:opacity-50 disabled:cursor-wait">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-stone-900 text-sm">{o.invoiceNo}</span>
+                    <span className="text-xs text-stone-400">{new Date(o.createdAt).toLocaleString()}</span>
+                  </div>
+                  <div className="text-xs text-stone-500 mt-0.5">
+                    {cust?.name || 'Walk-in'} · {o.cashier || '—'} · <span className="capitalize">{o.method}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <div className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(o.total)}</div>
+                  {loadingId === o.id ? <span className="text-xs text-stone-400">Loading…</span> : <ChevronRight size={16} className="text-stone-300" />}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <ReceiptModal open={!!receiptData} onClose={() => setReceiptData(null)} data={receiptData} />
+    </div>
+  );
+};
+
 function DialloPOSShell({ titles }) {
   const { can } = useRole();
   const { lang } = useT();
@@ -6696,6 +6803,7 @@ function DialloPOSShell({ titles }) {
         {view === 'expenses' && guarded('expenses', 'Expenses', ExpensesView)}
         {view === 'manualSale' && guarded('manualSale', 'Record Sale', ManualSaleView)}
         {view === 'onlineOrders' && guarded('onlineOrders', 'Online Orders', OnlineOrdersView)}
+        {view === 'saleHistory' && guarded('saleHistory', 'Sale History', SaleHistoryView)}
         {view === 'settings' && guarded('settings', 'Settings & Users', SettingsView)}
         {view === 'shifts' && <ShiftsView />}
       </div>
