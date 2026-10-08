@@ -801,7 +801,7 @@ export function SupplierForm({ open, onClose, initial }) {
 export function UserForm({ open, onClose, initial }) {
   const { upsertUser } = useData();
   const { toast } = useToast();
-  const blank = { name: '', username: '', role: 'cashier', email: '', store: 'Central', pin: '1234', whatsapp: '' };
+  const blank = { name: '', username: '', role: 'cashier', store: 'Central', pin: '1234', whatsapp: '' };
   const [form, setForm] = useState(initial || blank);
   useEffect(() => { setForm(initial ? { ...initial, pin: '' } : blank); }, [initial, open]);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -824,10 +824,7 @@ export function UserForm({ open, onClose, initial }) {
     <Modal open={open} onClose={onClose} title={initial?.id ? 'Edit user' : 'Add user'}
       footer={<><GhostBtn onClick={onClose}>Cancel</GhostBtn><PrimaryBtn onClick={save}>Save</PrimaryBtn></>}>
       <Field label="Full name"><Input value={form.name} onChange={set('name')} /></Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Username (for login)"><Input value={form.username || ''} onChange={set('username')} placeholder="e.g. paul" /></Field>
-        <Field label="Email"><Input value={form.email} onChange={set('email')} /></Field>
-      </div>
+      <Field label="Username (for login)"><Input value={form.username || ''} onChange={set('username')} placeholder="e.g. paul" /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Role"><SelectInput value={form.role} onChange={set('role')} options={[{ value: 'admin', label: 'Admin' }, { value: 'manager', label: 'Manager' }, { value: 'cashier', label: 'Cashier' }, { value: 'accountant', label: 'Accountant' }]} /></Field>
         <Field label="Store"><Input value={form.store} onChange={set('store')} /></Field>
