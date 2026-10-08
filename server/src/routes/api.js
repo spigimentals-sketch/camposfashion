@@ -955,6 +955,21 @@ r.put('/orders/:id', requireAuth, requireRole('admin'), h((req, res) => {
   db.prepare('UPDATE orders SET subtotal=?,discount=?,tva=?,total=?,method=? WHERE id=?')
     .run(subtotal, disc, 0, total, method || order.method, order.id);
 
+  // Keep the customer's points/spent in sync with the edit — insertSale
+  // credited 1 point per 100 FCFA of the ORIGINAL total and added it to
+  // spent; if the total changes here without also adjusting those, a later
+  // delete (which reverses based on whatever total is on the order AT THAT
+  // POINT) desyncs and can leave points negative or spent wrong. Adjust by
+  // the delta between old and new rather than recomputing from scratch, so
+  // this is safe to run on every edit regardless of how many times a sale
+  // gets corrected.
+  if (order.customerId) {
+    const oldPointsEarned = Math.floor(order.total / 100);
+    const newPointsEarned = Math.floor(total / 100);
+    db.prepare('UPDATE customers SET spent = MAX(0, spent + ?), points = MAX(0, points + ?) WHERE id=?')
+      .run(total - order.total, newPointsEarned - oldPointsEarned, order.customerId);
+  }
+
   // Replace items
   db.prepare('DELETE FROM order_items WHERE orderId=?').run(order.id);
   const ins = db.prepare('INSERT INTO order_items (orderId,productId,name,sku,price,cost,qty,mode,unitsPerPacket,variantId,size,color,variantSku) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
@@ -1004,7 +1019,7 @@ r.delete('/orders/:id', requireAuth, requireRole('admin'), h((req, res) => {
 
     if (order.customerId) {
       const pointsEarned = Math.floor(order.total / 100);
-      db.prepare('UPDATE customers SET spent = MAX(0, spent - ?), visits = MAX(0, visits - 1), points = points - ? + ? WHERE id=?')
+      db.prepare('UPDATE customers SET spent = MAX(0, spent - ?), visits = MAX(0, visits - 1), points = MAX(0, points - ? + ?) WHERE id=?')
         .run(order.total, pointsEarned, order.pointsRedeemed || 0, order.customerId);
       if (order.creditApplied > 0) {
         db.prepare('INSERT INTO customer_credit_ledger (customerId,amount,reason,orderId,note,createdAt,createdBy) VALUES (?,?,?,?,?,?,?)')
