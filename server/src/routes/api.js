@@ -968,6 +968,57 @@ r.put('/orders/:id', requireAuth, requireRole('admin'), h((req, res) => {
   res.json(updated);
 }));
 
+// Voids a sale entirely — the full reverse of insertSale: every line's stock
+// goes back to store_stock (logged as an 'in' stock_movement so the audit
+// trail shows why, same VOID- prefix pattern RET- uses for returns), any
+// points earned on the sale are clawed back and any points redeemed on it
+// are given back, and a redeemed store-credit amount gets an offsetting
+// ledger row rather than editing the original spend (so the ledger stays a
+// true history, same approach the return-approval flow already uses).
+// Admin-only and requires echoing the invoice number back as confirmation —
+// same "type it to confirm" guard used for deleting a whole shop — since
+// this can't be undone short of ringing the sale up again by hand.
+r.delete('/orders/:id', requireAuth, requireRole('admin'), h((req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  const { confirm } = req.body || {};
+  if (confirm !== order.invoiceNo) return res.status(400).json({ error: 'Confirmation did not match — nothing was deleted' });
+
+  const items = db.prepare('SELECT * FROM order_items WHERE orderId=?').all(order.id);
+  const now = new Date().toISOString();
+
+  db.transaction(() => {
+    const ensureRow = db.prepare('INSERT OR IGNORE INTO store_stock (storeId, variantId, stock) VALUES (?, ?, 0)');
+    const restock = db.prepare('UPDATE store_stock SET stock = stock + ? WHERE storeId=? AND variantId=?');
+    const moveIns = db.prepare('INSERT INTO stock_movements (productName,type,qty,source,date,user,productId,variantId,storeId) VALUES (?,?,?,?,?,?,?,?,?)');
+    const dateStr = now.slice(0, 16).replace('T', ' ');
+    items.forEach((it) => {
+      if (!it.variantId) return;
+      const units = (it.mode === 'packet' || it.mode === 'half') ? it.qty * (it.unitsPerPacket || 1) : it.qty;
+      ensureRow.run(order.storeId, it.variantId);
+      restock.run(units, order.storeId, it.variantId);
+      recomputeStock(it.variantId, it.productId);
+      const label = [it.name, [it.size, it.color].filter(Boolean).join(' / ')].filter(Boolean).join(' — ');
+      moveIns.run(label, 'in', units, `VOID-${order.invoiceNo}`, dateStr, req.user?.name || 'admin', it.productId, it.variantId, order.storeId);
+    });
+
+    if (order.customerId) {
+      const pointsEarned = Math.floor(order.total / 100);
+      db.prepare('UPDATE customers SET spent = MAX(0, spent - ?), visits = MAX(0, visits - 1), points = points - ? + ? WHERE id=?')
+        .run(order.total, pointsEarned, order.pointsRedeemed || 0, order.customerId);
+      if (order.creditApplied > 0) {
+        db.prepare('INSERT INTO customer_credit_ledger (customerId,amount,reason,orderId,note,createdAt,createdBy) VALUES (?,?,?,?,?,?,?)')
+          .run(order.customerId, order.creditApplied, 'order_voided', order.id, `Voided sale ${order.invoiceNo}`, now, req.user?.name || 'admin');
+      }
+    }
+
+    db.prepare('DELETE FROM order_items WHERE orderId=?').run(order.id);
+    db.prepare('DELETE FROM orders WHERE id=?').run(order.id);
+  })();
+
+  res.json({ ok: true, id: order.id });
+}));
+
 // ---------------- DISCOUNT REQUESTS ----------------
 // Cashier submits a discount request; manager/admin approves or rejects it
 // before the order is finalised and the receipt prints.

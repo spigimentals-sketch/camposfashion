@@ -1352,6 +1352,130 @@ const VariantPickerModal = ({ product, onClose, onPick }) => {
   );
 };
 
+// Admin-only sale correction: add/remove line items or change quantities on
+// a PAST sale and re-save it. Reuses the existing PUT /orders/:id, which
+// already reconciles stock (returns units for anything dropped/reduced,
+// takes units for anything added/increased) and recalculates the total —
+// this modal just builds the new item list and hands it off. Separate from
+// ReceiptModal (which stays a read-only receipt view) so editing a sale
+// right after it's rung up doesn't become possible by accident.
+const EditSaleModal = ({ order, onClose, onSaved }) => {
+  const { products: liveProducts, online } = useData();
+  const { toast } = useToast();
+  const products = online ? (liveProducts || []) : PRODUCTS;
+  const [items, setItems] = useState([]);
+  const [discount, setDiscount] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [addSearch, setAddSearch] = useState('');
+  const [addPicker, setAddPicker] = useState(null);
+
+  useEffect(() => {
+    if (!order) return;
+    setItems((order.items || []).map(it => ({ ...it })));
+    setDiscount(order.discount || 0);
+    setAddSearch('');
+    setAddPicker(null);
+  }, [order]);
+
+  if (!order) return null;
+
+  const updateQty = (idx, delta) => {
+    setItems(prev => {
+      const next = [...prev];
+      const newQty = next[idx].qty + delta;
+      if (newQty <= 0) { next.splice(idx, 1); return next; }
+      next[idx] = { ...next[idx], qty: newQty };
+      return next;
+    });
+  };
+  const removeItem = (idx) => setItems(prev => prev.filter((_, i) => i !== idx));
+  const addVariant = (product, v) => {
+    setItems(prev => [...prev, {
+      productId: product.id, variantId: v.id, name: product.name, sku: v.sku || product.sku,
+      price: product.price, cost: product.cost || 0, qty: 1, mode: 'unit', unitsPerPacket: null,
+      size: v.size, color: v.color, variantSku: v.sku,
+    }]);
+    setAddPicker(null);
+    setAddSearch('');
+  };
+
+  const subtotal = items.reduce((s, it) => s + it.price * it.qty, 0);
+  const total = Math.max(0, subtotal - (Number(discount) || 0));
+
+  const save = async () => {
+    if (items.length === 0) { toast('A sale needs at least one item — delete it instead if it should be removed entirely', 'error'); return; }
+    setSaving(true);
+    try {
+      await api.updateOrder(order.id, { items, discount: Number(discount) || 0, method: order.method });
+      toast('Sale updated');
+      onSaved();
+    } catch (e) {
+      toast(e.message || 'Could not update this sale', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const q = addSearch.trim().toLowerCase();
+  const matches = q ? products.filter(p => p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)).slice(0, 6) : [];
+
+  return (
+    <Modal open={!!order} onClose={onClose} title={`Edit ${order.invoiceNo}`}>
+      <div className="space-y-2 max-h-[45vh] overflow-y-auto">
+        {items.map((it, idx) => (
+          <div key={idx} className="flex items-center gap-2 p-2 border border-stone-200 rounded-lg">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-stone-900 truncate">{it.name}</div>
+              <div className="text-xs text-stone-500">
+                {[it.size, it.color].filter(Boolean).join(' / ')}{[it.size, it.color].filter(Boolean).length ? ' · ' : ''}{fmt(it.price)} each
+              </div>
+            </div>
+            <button onClick={() => updateQty(idx, -1)} className="w-7 h-7 rounded-md border border-stone-200 flex items-center justify-center hover:bg-stone-50 flex-shrink-0"><Minus size={13} /></button>
+            <span className="w-6 text-center text-sm font-medium flex-shrink-0">{it.qty}</span>
+            <button onClick={() => updateQty(idx, 1)} className="w-7 h-7 rounded-md border border-stone-200 flex items-center justify-center hover:bg-stone-50 flex-shrink-0"><Plus size={13} /></button>
+            <div className="w-20 text-right text-sm font-medium flex-shrink-0">{fmt(it.price * it.qty)}</div>
+            <button onClick={() => removeItem(idx)} className="p-1.5 text-stone-400 hover:text-rose-600 flex-shrink-0"><Trash2 size={14} /></button>
+          </div>
+        ))}
+        {items.length === 0 && (
+          <div className="text-center text-stone-400 text-sm py-6">No items left — Save will be blocked; use Delete sale instead if that's the goal.</div>
+        )}
+      </div>
+
+      <div className="mt-3 relative">
+        <input value={addSearch} onChange={e => setAddSearch(e.target.value)} placeholder="Add a product…"
+          className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm" />
+        {matches.length > 0 && (
+          <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-stone-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+            {matches.map(p => (
+              <button key={p.id} onClick={() => setAddPicker(p)} className="w-full text-left px-3 py-2 text-sm hover:bg-stone-50 flex items-center justify-between">
+                <span>{p.name}</span><span className="text-stone-400">{fmt(p.price)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 space-y-2 text-sm border-t border-stone-200 pt-3">
+        <div className="flex items-center justify-between">
+          <span className="text-stone-500">Discount</span>
+          <input type="number" value={discount} onChange={e => setDiscount(e.target.value)} className="w-28 px-2 py-1 border border-stone-200 rounded-lg text-right" />
+        </div>
+        <div className="flex items-center justify-between font-semibold text-base">
+          <span>Total</span><span>{fmt(total)}</span>
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end gap-2">
+        <button onClick={onClose} className="px-4 py-2 text-sm border border-stone-200 rounded-lg hover:bg-stone-50">Cancel</button>
+        <button onClick={save} disabled={saving} className="px-4 py-2 text-sm bg-rose-900 text-white rounded-lg hover:bg-rose-800 disabled:opacity-50">{saving ? 'Saving…' : 'Save changes'}</button>
+      </div>
+
+      <VariantPickerModal product={addPicker} onClose={() => setAddPicker(null)} onPick={(v) => addVariant(addPicker, v)} />
+    </Modal>
+  );
+};
+
 // ============ RETURNS / EXCHANGES ============
 // A cashier submits which line(s) of a past sale are coming back; a
 // manager/admin approves before the customer is credited. Unlike the
@@ -6650,6 +6774,7 @@ const SaleHistoryView = () => {
   const [search, setSearch] = useState('');
   const [receiptData, setReceiptData] = useState(null);
   const [loadingId, setLoadingId] = useState(null);
+  const [editingOrder, setEditingOrder] = useState(null);
 
   const load = async () => {
     if (!online) return;
@@ -6693,6 +6818,39 @@ const SaleHistoryView = () => {
     }
   };
 
+  const openEdit = async (o) => {
+    setLoadingId(o.id);
+    try {
+      setEditingOrder(await api.getOrder(o.id));
+    } catch (e) {
+      toast(e.message || 'Could not load this sale', 'error');
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  // Admin-only, mirrors the server's own confirmation requirement (typing
+  // the invoice number back) — there's no undo once stock has been
+  // restored and the row is gone, so a plain confirm() dialog isn't enough
+  // friction for something this destructive.
+  const deleteSale = (o) => {
+    const typed = window.prompt(`Type the invoice number "${o.invoiceNo}" to permanently delete this sale. Its stock will be restored. This cannot be undone.`);
+    if (typed === null) return;
+    if (typed !== o.invoiceNo) { toast('Invoice number did not match — nothing was deleted', 'error'); return; }
+    (async () => {
+      setLoadingId(o.id);
+      try {
+        await api.deleteOrder(o.id, typed);
+        toast('Sale deleted — stock restored');
+        load();
+      } catch (e) {
+        toast(e.message || 'Could not delete this sale', 'error');
+      } finally {
+        setLoadingId(null);
+      }
+    })();
+  };
+
   return (
     <div className="flex-1 overflow-y-auto bg-stone-50/30 p-5 md:p-7">
       <div className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden">
@@ -6712,9 +6870,9 @@ const SaleHistoryView = () => {
           ) : visible.map((o) => {
             const cust = customers.find(c => c.id === o.customerId);
             return (
-              <button key={o.id} onClick={() => openReceipt(o)} disabled={loadingId === o.id}
-                className="w-full text-left p-4 flex items-center justify-between gap-4 hover:bg-stone-50 disabled:opacity-50 disabled:cursor-wait">
-                <div className="min-w-0">
+              <div key={o.id} className="w-full flex items-center justify-between gap-4 hover:bg-stone-50">
+                <button onClick={() => openReceipt(o)} disabled={loadingId === o.id}
+                  className="flex-1 min-w-0 text-left p-4 disabled:opacity-50 disabled:cursor-wait">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-stone-900 text-sm">{o.invoiceNo}</span>
                     <span className="text-xs text-stone-400">{new Date(o.createdAt).toLocaleString()}</span>
@@ -6722,17 +6880,27 @@ const SaleHistoryView = () => {
                   <div className="text-xs text-stone-500 mt-0.5">
                     {cust?.name || 'Walk-in'} · {o.cashier || '—'} · <span className="capitalize">{o.method}</span>
                   </div>
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
+                </button>
+                <div className="flex items-center gap-2 flex-shrink-0 pr-4">
                   <div className="font-serif text-lg text-stone-900" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>{fmt(o.total)}</div>
-                  {loadingId === o.id ? <span className="text-xs text-stone-400">Loading…</span> : <ChevronRight size={16} className="text-stone-300" />}
+                  {can.admin && (
+                    <>
+                      <button onClick={() => openEdit(o)} disabled={loadingId === o.id} title="Edit this sale"
+                        className="p-1.5 text-stone-400 hover:text-stone-700 disabled:opacity-50"><Edit2 size={14} /></button>
+                      <button onClick={() => deleteSale(o)} disabled={loadingId === o.id} title="Delete this sale"
+                        className="p-1.5 text-stone-400 hover:text-rose-600 disabled:opacity-50"><Trash2 size={14} /></button>
+                    </>
+                  )}
+                  {loadingId === o.id ? <span className="text-xs text-stone-400">…</span> : <ChevronRight size={16} className="text-stone-300" />}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
       </div>
       <ReceiptModal open={!!receiptData} onClose={() => setReceiptData(null)} data={receiptData} />
+      <EditSaleModal order={editingOrder} onClose={() => setEditingOrder(null)}
+        onSaved={() => { setEditingOrder(null); load(); }} />
     </div>
   );
 };

@@ -127,6 +127,7 @@ export const api = {
   getManualOrders: () => req('GET', '/orders?manual=1'),
   getOrder: (id) => req('GET', `/orders/${id}`),
   updateOrder: (id, data) => req('PUT', `/orders/${id}`, data),
+  deleteOrder: (id, confirm) => req('DELETE', `/orders/${id}`, { confirm }),
   // settings
   getSettings: () => req('GET', '/settings'),
   saveSettings: (s) => req('PUT', '/settings', s),
