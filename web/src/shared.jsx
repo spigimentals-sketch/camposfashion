@@ -1353,6 +1353,102 @@ function loadLogoImage(settings) {
   });
 }
 
+// A PDF version of a receipt — used for the in-store "Send via WhatsApp"
+// action (uploaded, then linked in a wa.me message) and the public ordering
+// page's self-service receipt download. Same letterhead as every other
+// generated document (including the shop's own logo, if they've uploaded
+// one), but no signature block (finishLetterheadPdf's is meant for
+// payslips/notices, not a sales receipt handed to a customer) — just a
+// plain page-footer instead.
+export async function buildReceiptPdf(data, settings) {
+  const { doc, margin, startY } = await createLetterheadPdf({ docTitle: 'Receipt', settings });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const { items = [], subtotal = 0, discount = 0, pointsDiscountAmt = 0, creditUsed = 0, total = 0, customer, method = 'cash', invoiceNo = '' } = data || {};
+  let y = startY;
+
+  doc.setTextColor(28, 25, 23);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text(`Invoice: ${invoiceNo || '—'}`, margin, y);
+  doc.text(new Date().toLocaleString(), pageWidth - margin, y, { align: 'right' });
+  y += 16;
+  doc.text(`Customer: ${customer?.name || 'Walk-in'}`, margin, y);
+  y += 24;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(120, 113, 108);
+  doc.text('ITEM', margin, y);
+  doc.text('TOTAL', pageWidth - margin, y, { align: 'right' });
+  y += 8;
+  doc.setDrawColor(229, 229, 229);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 18;
+
+  items.forEach((it) => {
+    const variant = (it.size && it.size !== 'One Size') || it.color ? ` — ${[it.size, it.color].filter(Boolean).join(' / ')}` : '';
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.setTextColor(28, 25, 23);
+    doc.text(`${it.name || it.productName || ''}${variant}`, margin, y);
+    doc.text(pdfFmt(it.price * it.qty), pageWidth - margin, y, { align: 'right' });
+    y += 15;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(120, 113, 108);
+    doc.text(`${it.qty} × ${pdfFmt(it.price)}`, margin, y);
+    y += 18;
+  });
+
+  doc.setDrawColor(229, 229, 229);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 20;
+
+  const rows = [['Subtotal', pdfFmt(subtotal)]];
+  if (discount > 0) rows.push(['Discount', `-${pdfFmt(discount)}`]);
+  if (pointsDiscountAmt > 0) rows.push(['Points redeemed', `-${pdfFmt(pointsDiscountAmt)}`]);
+  if (creditUsed > 0) rows.push(['Store credit', `-${pdfFmt(creditUsed)}`]);
+  rows.forEach(([label, val]) => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.setTextColor(87, 83, 78);
+    doc.text(label, margin, y);
+    doc.text(val, pageWidth - margin, y, { align: 'right' });
+    y += 16;
+  });
+  y += 6;
+  doc.setDrawColor(28, 25, 23);
+  doc.setLineWidth(0.75);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 22;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(28, 25, 23);
+  doc.text('Total', margin, y);
+  doc.text(pdfFmt(total), pageWidth - margin, y, { align: 'right' });
+  y += 24;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(120, 113, 108);
+  doc.text(`Paid by ${method}`, margin, y);
+
+  // Plain page footer — no "Manager" signature line; that's for
+  // payslips/notices, not a receipt handed to a customer.
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const footY = pageHeight - 36;
+  doc.setDrawColor(229, 229, 229);
+  doc.setLineWidth(0.5);
+  doc.line(margin, footY - 14, pageWidth - margin, footY - 14);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 113, 108);
+  const left = [settings.rccm, settings.niu].filter(Boolean).join('   •   ');
+  if (left) doc.text(left, margin, footY);
+  doc.text(settings.receiptFooter || 'Thank you for your purchase', pageWidth - margin, footY, { align: 'right' });
+
+  return doc;
+}
+
 // Draws a rounded rectangle path (Canvas has no built-in roundRect in every
 // supported browser) — used for the receipt image's logo mark.
 function roundedRectPath(ctx, x, y, w, h, r) {

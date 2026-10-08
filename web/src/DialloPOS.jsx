@@ -10,7 +10,7 @@ import {
   ProductForm, SupplierForm, UserForm, EmployeeForm, POForm,
   downloadCsv, downloadJson, PrimaryBtn, GhostBtn,
   AuthProvider, useAuth, LoginScreen, PlatformLogin, switchShop,
-  createLetterheadPdf, finishLetterheadPdf, buildReceiptImage,
+  createLetterheadPdf, finishLetterheadPdf, buildReceiptPdf,
 } from './shared.jsx';
 import { getTenantToken } from './api.js';
 import {
@@ -531,49 +531,6 @@ const FCFA_PER_POINT = 5;
 // Shared by the staff WhatsApp-notify feature and the customer promo one.
 const normalizePhone = (raw) => (raw || '').replace(/[^\d]/g, '').replace(/^0+/, '');
 
-// Shared by the receipt modal's "Send via WhatsApp" button AND by
-// completePayment (auto-fires the instant a sale with a customer phone
-// number goes through, so the cashier never has to open the receipt and
-// click Send themselves). Same three-tier strategy either way — share the
-// real image file where that's supported, copy-to-clipboard + open the
-// chat where it isn't, download as an absolute last resort — see the
-// comment above the old inline version for why each tier exists. `silent`
-// is set for the automatic call so a customer with no phone on file (or a
-// browser with none of these APIs) doesn't surface a toast for something
-// the cashier never asked for; the manual button still gets full feedback.
-async function sendReceiptToWhatsApp({ data, settings, toast, silent = false }) {
-  const { customer, total, invoiceNo } = data || {};
-  if (!customer?.phone) return;
-  try {
-    const dataUrl = await buildReceiptImage(data, settings || {});
-    const blob = await (await fetch(dataUrl)).blob();
-    const filename = `receipt-${invoiceNo || Date.now()}.jpg`;
-    const file = new File([blob], filename, { type: 'image/jpeg' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], text: `Receipt for ${customer.name || 'your purchase'} — ${fmt(total)}` });
-      return;
-    }
-    if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
-      try {
-        const pngDataUrl = await buildReceiptImage(data, settings || {}, 'png');
-        const pngBlob = await (await fetch(pngDataUrl)).blob();
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
-        window.open(`https://wa.me/${normalizePhone(customer.phone)}`, '_blank');
-        if (toast) toast('Receipt image copied — paste it (Ctrl+V) into the chat that just opened', 'info');
-        return;
-      } catch { /* fall through to download */ }
-    }
-    if (silent) return; // never auto-download on the cashier's behalf
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = filename;
-    a.click();
-    if (toast) toast("This device can't share or copy images — receipt image downloaded, attach it in WhatsApp yourself", 'info');
-  } catch (e) {
-    if (e.name === 'AbortError') return; // cashier/customer closed the share sheet
-    if (toast && !silent) toast(e.message || 'Could not share the receipt', 'error');
-  }
-}
 // A "half packet" sale consumes roughly half a full packet's units — e.g. a
 // carton of 6 sold as 3. Rounded since packet sizes aren't always even.
 const halfPackUnits = (p) => Math.max(1, Math.round((p?.unitsPerPacket || 0) / 2));
@@ -876,8 +833,12 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   // compliance problem, not just cosmetic).
   const { settings } = useData();
   const shopName = settings?.businessName || 'Point of Sale';
+  const [waLink, setWaLink] = useState(null);
   const [waPreparing, setWaPreparing] = useState(false);
-  useEffect(() => { setWaPreparing(false); }, [data]);
+  // Reset once a new sale's receipt replaces this one — otherwise a stale
+  // "Send" link from the PREVIOUS customer's receipt could linger and get
+  // clicked against the current one.
+  useEffect(() => { setWaLink(null); setWaPreparing(false); }, [data]);
   // Inject a scoped @page rule so the receipt prints on 80 mm thermal paper.
   // Done here rather than in index.css so it doesn't affect the Reports
   // page, which also calls window.print() but needs a full-size page.
@@ -896,23 +857,27 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
   const change = 0;
   const productName = (p) => lang === 'fr' ? (PRODUCT_NAMES_FR[p.id] || p.name) : p.name;
 
-  // No paid WhatsApp Business API here, so there is no way to make a web
-  // page silently deposit a file into someone's chat — that always needs a
-  // human in the loop somewhere. Three tiers, each sending the real image
-  // bytes rather than a link, picked by what the cashier's device supports:
-  //  1. Web Share API with a File (phones, mainly Android Chrome) — picking
-  //     WhatsApp in the native share sheet attaches the real image.
-  //  2. Clipboard image write + open the exact WhatsApp Web/Desktop chat
-  //     (desktop browsers, which don't implement file sharing but do
-  //     support writing an image to the clipboard) — the cashier's only
-  //     remaining step is Ctrl+V into the already-open chat, no Save As
-  //     dialog and no manual file picker.
-  //  3. Plain download, only if neither of the above is supported at all.
+  // No paid WhatsApp Business API here, so this can only pre-fill a message
+  // with a link to an uploaded PDF and open the chat — the cashier still
+  // has to press Send themselves in WhatsApp. Same wa.me pattern as the
+  // Shifts/Users WhatsApp notify flow.
   const sendViaWhatsApp = async () => {
     if (!customer?.phone) return;
     setWaPreparing(true);
     try {
-      await sendReceiptToWhatsApp({ data, settings, toast });
+      const doc = await buildReceiptPdf(data, settings || {});
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Could not read generated PDF'));
+        reader.readAsDataURL(doc.output('blob'));
+      });
+      const { path } = await api.uploadDocument(`receipt-${invoiceNo || Date.now()}`, dataUrl);
+      const pdfUrl = `${window.location.origin}${path}`;
+      const text = `Hello ${customer.name || ''}, here is your receipt for ${fmt(total)}: ${pdfUrl}`;
+      setWaLink(`https://wa.me/${normalizePhone(customer.phone)}?text=${encodeURIComponent(text)}`);
+    } catch (e) {
+      toast(e.message || 'Could not prepare the WhatsApp receipt', 'error');
     } finally {
       setWaPreparing(false);
     }
@@ -1069,10 +1034,17 @@ const ReceiptModal = ({ open, onClose, data, onNewOrder }) => {
             <Printer size={14} /> {t('print')}
           </button>
           {customer?.phone && (
-            <button onClick={sendViaWhatsApp} disabled={waPreparing}
-              className="flex items-center justify-center gap-1.5 py-2 border border-stone-200 bg-white rounded-lg text-xs font-medium hover:bg-stone-50 disabled:opacity-50">
-              <MessageCircle size={14} /> {waPreparing ? 'Preparing…' : 'WhatsApp'}
-            </button>
+            waLink ? (
+              <a href={waLink} target="_blank" rel="noreferrer"
+                className="flex items-center justify-center gap-1.5 py-2 border border-emerald-200 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-medium hover:bg-emerald-100">
+                <MessageCircle size={14} /> Send
+              </a>
+            ) : (
+              <button onClick={sendViaWhatsApp} disabled={waPreparing}
+                className="flex items-center justify-center gap-1.5 py-2 border border-stone-200 bg-white rounded-lg text-xs font-medium hover:bg-stone-50 disabled:opacity-50">
+                <MessageCircle size={14} /> {waPreparing ? 'Preparing…' : 'WhatsApp'}
+              </button>
+            )
           )}
           <button onClick={() => { onNewOrder ? onNewOrder() : onClose(); }} className="py-2 bg-rose-900 text-white rounded-lg text-xs font-medium hover:bg-rose-800">
             {onNewOrder ? t('new_order') : t('close')}
