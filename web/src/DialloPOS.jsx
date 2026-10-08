@@ -2276,11 +2276,18 @@ const POSView = ({ initialCategory, onCategoryConsumed }) => {
         <div className="flex-1 overflow-y-auto px-5 py-3">
           <div className="flex items-center justify-between mb-3">
             <div className="text-[10px] uppercase tracking-widest text-stone-400 font-medium">{t('order')} · {cart.length} {t('items')}</div>
-            {cart.length > 0 && (
-              <button onClick={() => setCart([])} className="text-[11px] text-stone-500 hover:text-rose-600 flex items-center gap-1">
-                <Trash2 size={11} /> {t('clear')}
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {can.quickAddFromPOS && (
+                <button onClick={() => setQuickAddOpen(true)} className="text-[11px] text-rose-700 hover:text-rose-900 font-medium flex items-center gap-1">
+                  <Plus size={11} /> Add product
+                </button>
+              )}
+              {cart.length > 0 && (
+                <button onClick={() => setCart([])} className="text-[11px] text-stone-500 hover:text-rose-600 flex items-center gap-1">
+                  <Trash2 size={11} /> {t('clear')}
+                </button>
+              )}
+            </div>
           </div>
           {cart.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
