@@ -2,9 +2,6 @@
 import React, { useState, useMemo, useContext, createContext, useEffect, useRef } from 'react';
 import api, { imageUrl } from './api.js';
 import { openCustomerDisplay, CHANNEL_NAME } from './customerDisplay.js';
-// Loaded on demand (see ClockInCameraModal) — face-api.js drags in
-// TensorFlow.js, which roughly doubles the JS bundle. Nothing else in the
-// app needs it, so it shouldn't cost every page load just to sit unused.
 import {
   ToastProvider, useToast, DataProvider, useData, Modal, Field, Input,
   ProductForm, SupplierForm, UserForm, EmployeeForm, POForm,
@@ -24,7 +21,7 @@ import {
   Clock, UserCircle2, Printer, Wallet, Truck, ClipboardList,
   ArrowDownLeft, ArrowUpLeft, RefreshCw, Languages, Phone, Mail,
   Globe, Building, Hash, Percent, ShieldCheck, BellRing,
-  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Camera, Monitor, Home,
+  Save, Eye, EyeOff, ChevronLeft, Edit2, Send, FileCheck, Monitor, Home,
   MessageCircle, ArrowUpDown,
   Shirt, Layers, SquareStack, Medal, Shapes, Columns,
 } from 'lucide-react';
@@ -5512,183 +5509,6 @@ const SettingsView = () => {
   );
 };
 
-// Live camera preview + capture, used right before a clock-in completes.
-// The snapshot is the thing standing in for "this is really that person" —
-// it gets uploaded and attached to the new shift so a manager can check it
-// later, the way fingerprint verification was meant to but couldn't
-// reliably do across domains.
-//
-// Before the capture button unlocks, a lightweight client-side liveness
-// check (see liveness.js) requires seeing a face and a blink during this
-// session — stops someone just holding up a printed photo. It's a free,
-// in-browser deterrent, not the hard guarantee a paid liveness vendor would
-// give; a video replay of a blinking person would still pass.
-const LIVENESS_POLL_MS = 200;
-const LIVENESS_WINDOW_MS = 2000;
-
-const ClockInCameraModal = ({ open, onClose, onCapture }) => {
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const livenessTimerRef = useRef(null);
-  const earHistoryRef = useRef([]);
-  const blinkVerifiedRef = useRef(false);
-  const [error, setError] = useState('');
-  const [capturing, setCapturing] = useState(false);
-  // loading-model | no-face | watching | verified | unavailable
-  const [livenessPhase, setLivenessPhase] = useState('loading-model');
-
-  const stopLivenessLoop = () => {
-    clearInterval(livenessTimerRef.current);
-    livenessTimerRef.current = null;
-    earHistoryRef.current = [];
-    blinkVerifiedRef.current = false;
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setError('');
-    setCapturing(false);
-    setLivenessPhase('loading-model');
-    const tryCamera = (c) => navigator.mediaDevices.getUserMedia(c);
-    (navigator.mediaDevices
-      ? tryCamera({ video: { facingMode: 'user' }, audio: false })
-          .catch(() => tryCamera({ video: true, audio: false }))
-      : Promise.reject(Object.assign(new Error('no devices'), { name: 'NotFoundError' }))
-    ).then((stream) => {
-      if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-      streamRef.current = stream;
-      requestAnimationFrame(() => {
-        if (!cancelled && videoRef.current) videoRef.current.srcObject = stream;
-      });
-    }).catch((err) => {
-      if (cancelled) return;
-      const n = err?.name || '';
-      if (n === 'NotAllowedError' || n === 'PermissionDeniedError') {
-        setError('PERMISSION_DENIED');
-      } else if (n === 'NotFoundError' || n === 'DevicesNotFoundError') {
-        setError('NO_CAMERA');
-      } else if (n === 'NotReadableError' || n === 'TrackStartError') {
-        setError('CAMERA_BUSY');
-      } else {
-        setError('GENERIC');
-      }
-    });
-
-    // Dynamically imported — face-api.js pulls in TensorFlow.js, which
-    // roughly doubles the JS bundle, so it's only fetched when this modal
-    // actually opens instead of costing every page load.
-    import('./liveness.js')
-      .then((liveness) => liveness.loadFaceModels().then(() => liveness))
-      .then((liveness) => {
-        if (cancelled) return;
-        setLivenessPhase('no-face');
-        livenessTimerRef.current = setInterval(async () => {
-          const video = videoRef.current;
-          if (!video || video.readyState < 2) return;
-          let ear = null;
-          try { ear = await liveness.detectFaceEAR(video); } catch { /* transient — try again next tick */ }
-          if (cancelled) return;
-          if (ear == null) {
-            setLivenessPhase((p) => (p === 'verified' ? 'verified' : 'no-face'));
-            return;
-          }
-          const now = Date.now();
-          const hist = earHistoryRef.current;
-          hist.push({ t: now, ear });
-          while (hist.length && now - hist[0].t > LIVENESS_WINDOW_MS) hist.shift();
-          if (!blinkVerifiedRef.current) {
-            const recentMin = Math.min(...hist.map((h) => h.ear));
-            if (recentMin < liveness.EAR_CLOSED && ear > liveness.EAR_OPEN) blinkVerifiedRef.current = true;
-          }
-          setLivenessPhase(blinkVerifiedRef.current ? 'verified' : 'watching');
-        }, LIVENESS_POLL_MS);
-      })
-      .catch(() => { if (!cancelled) setLivenessPhase('unavailable'); });
-
-    return () => {
-      cancelled = true;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-      stopLivenessLoop();
-    };
-  }, [open]);
-
-  const handleClose = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    stopLivenessLoop();
-    onClose();
-  };
-
-  const capture = () => {
-    const video = videoRef.current;
-    if (!video || !video.videoWidth) return;
-    setCapturing(true);
-    const width = 480;
-    const height = Math.round((480 * video.videoHeight) / video.videoWidth);
-    const canvas = document.createElement('canvas');
-    canvas.width = width; canvas.height = height;
-    canvas.getContext('2d').drawImage(video, 0, 0, width, height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    stopLivenessLoop();
-    onCapture(dataUrl);
-  };
-
-  const livenessMessage = {
-    'loading-model': { text: 'Loading face check…', tone: 'stone' },
-    'no-face': { text: 'Position your face in the frame', tone: 'amber' },
-    'watching': { text: 'Blink to verify it’s really you', tone: 'amber' },
-    'verified': { text: 'Verified — you can capture now', tone: 'emerald' },
-    'unavailable': { text: 'Face check unavailable — you can still capture your photo', tone: 'amber' },
-  }[livenessPhase];
-
-  const canCapture = !error && !capturing;
-
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-stone-900 flex items-center gap-2"><Camera size={16} /> Clock-in photo</h3>
-          <button onClick={handleClose} className="p-1.5 rounded-md hover:bg-stone-100"><X size={15} className="text-stone-500" /></button>
-        </div>
-        {error ? (
-          <div className="py-6 text-center space-y-3">
-            {error === 'PERMISSION_DENIED' ? (<>
-              <p className="text-sm font-semibold text-rose-700">Camera access blocked</p>
-              <p className="text-xs text-stone-500 leading-relaxed">Chrome is blocking the camera for this site. Click the <strong>camera icon</strong> or <strong>lock icon</strong> in the address bar, set Camera to <strong>Allow</strong>, then reload and try again.</p>
-            </>) : error === 'NO_CAMERA' ? (<>
-              <p className="text-sm font-semibold text-rose-700">No camera found</p>
-              <p className="text-xs text-stone-500">Make sure a webcam is plugged in and recognised by Windows, then try again.</p>
-            </>) : error === 'CAMERA_BUSY' ? (<>
-              <p className="text-sm font-semibold text-rose-700">Camera in use by another app</p>
-              <p className="text-xs text-stone-500">Close Zoom, Teams, or any other app using the camera, then try again.</p>
-            </>) : (
-              <p className="text-sm text-rose-600">Could not access the camera — allow camera permission and try again.</p>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className="rounded-xl overflow-hidden bg-stone-900 aspect-square mb-3 relative">
-              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
-            </div>
-          </>
-        )}
-        <div className="flex gap-2">
-          <button onClick={handleClose} className="flex-1 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-100 rounded-lg">Cancel</button>
-          <button onClick={capture} disabled={!canCapture}
-            className="flex-1 py-2.5 bg-rose-900 text-white rounded-lg text-sm font-medium hover:bg-rose-800 disabled:opacity-50 flex items-center justify-center gap-2">
-            <Camera size={15} /> Capture & clock in
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // ============ MAIN APP ============
 // ============ SHIFTS VIEW ============
 const ShiftsView = () => {
@@ -5700,7 +5520,6 @@ const ShiftsView = () => {
   const { shifts, activeShifts, myShift, clockIn, clockOut, registerClockIn, registerClockOut } = useShifts();
   const [clockOutModal, setClockOutModal] = useState(false);
   const [countedCash, setCountedCash] = useState('');
-  const [showCamera, setShowCamera] = useState(false);
   const [employeeModal, setEmployeeModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [waTarget, setWaTarget] = useState(null); // single recipient for a per-name "Notify via WhatsApp"
@@ -5719,11 +5538,6 @@ const ShiftsView = () => {
     } catch (e) {
       toast(!e.status ? "Can't delete while offline — try again once connected" : e.message, 'error');
     }
-  };
-
-  const handleCapture = async (photoDataUrl) => {
-    setShowCamera(false);
-    await clockIn(photoDataUrl);
   };
 
   const submitClockOut = async () => {
@@ -5846,11 +5660,11 @@ const ShiftsView = () => {
             </button>
           ) : (
             <button
-              onClick={() => user?.role === 'admin' ? clockIn(null) : setShowCamera(true)}
+              onClick={() => clockIn(null)}
               disabled={onHandheld}
               title={onHandheld ? 'Clock in from the POS terminal — not a phone or tablet' : undefined}
               className="px-5 py-2.5 rounded-xl bg-rose-900 text-white text-sm font-medium hover:bg-rose-800 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-rose-900">
-              {user?.role === 'admin' ? <Clock size={16} /> : <Camera size={16} />} Clock in
+              <Clock size={16} /> Clock in
             </button>
           )}
         </div>
@@ -6092,7 +5906,6 @@ const ShiftsView = () => {
         </Field>
       </Modal>
 
-      <ClockInCameraModal open={showCamera} onClose={() => setShowCamera(false)} onCapture={handleCapture} />
       <EmployeeForm open={employeeModal} onClose={() => setEmployeeModal(false)} initial={editingEmployee} />
       {waTarget && (
         <WhatsAppNotifyModal open={!!waTarget} onClose={() => setWaTarget(null)} recipients={[waTarget]} />

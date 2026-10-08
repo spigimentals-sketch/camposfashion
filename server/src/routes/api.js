@@ -646,14 +646,10 @@ r.get('/shifts', h((req, res) => {
   res.json(shifts.map(({ expectedCash, countedCash, cashVariance, clockInPhoto, ...rest }) => rest));
 }));
 
-// Clock IN — always the authenticated user. A photo is required for
-// non-admin roles (stands in for "this is really that person"). Admins
-// are the ones who review everyone else's photos, so requiring one of
-// themselves adds no accountability — they clock in without one.
+// Clock IN — always the authenticated user. No camera/photo requirement.
 r.post('/shifts/clock-in', requireAuth, h((req, res) => {
   if (isHandheldUA(req.headers['user-agent'])) throw new Error('Use the POS terminal for this — not a phone or tablet');
   const { photo } = req.body || {};
-  if (!photo && req.user.role !== 'admin') throw new Error('A clock-in photo is required');
   const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
   if (!u) throw new Error('account not found');
   const open = db.prepare('SELECT * FROM shifts WHERE userId=? AND clockOut IS NULL').get(u.id);
